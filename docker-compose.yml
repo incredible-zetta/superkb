@@ -24,7 +24,8 @@ services:
       HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_API_LLM_PROVIDER:-minimax}
       HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY:-}
       HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:-MiniMax-Text-01}
-      HINDSIGHT_API_LLM_EXTRA_BODY: ${HINDSIGHT_API_LLM_EXTRA_BODY:-}
+      HINDSIGHT_API_LLM_BASE_URL: ${HINDSIGHT_API_LLM_BASE_URL:-}
+      HINDSIGHT_API_LLM_EXTRA_BODY: ${HINDSIGHT_API_LLM_EXTRA_BODY:-null}
       HINDSIGHT_API_LLM_STRICT_SCHEMA: ${HINDSIGHT_API_LLM_STRICT_SCHEMA:-}
       # Embeddings via 9router (OpenAI-compatible). host.docker.internal maps to
       # the host gateway so the container can reach 9router on the host.
