@@ -222,28 +222,55 @@ func (i *Indexer) waitForOperation(ctx context.Context, bankID, opID string) err
 	}
 }
 
+type recallChunkInclude struct {
+	MaxChunkTokens int `json:"max_chunk_tokens,omitempty"`
+}
+
+type recallInclude struct {
+	Chunks *recallChunkInclude `json:"chunks,omitempty"`
+}
+
 type recallRequest struct {
-	Query     string `json:"query"`
-	MaxTokens int    `json:"max_tokens,omitempty"`
+	Query     string         `json:"query"`
+	MaxTokens int            `json:"max_tokens,omitempty"`
+	Include   *recallInclude `json:"include,omitempty"`
+}
+
+type recallResult struct {
+	ID         string   `json:"id"`
+	Text       string   `json:"text"`
+	DocumentID string   `json:"document_id"`
+	Context    string   `json:"context"`
+	Entities   []string `json:"entities"`
+	ChunkID    string   `json:"chunk_id"`
+}
+
+type recallChunk struct {
+	ID         string `json:"id"`
+	Text       string `json:"text"`
+	ChunkIndex int    `json:"chunk_index"`
 }
 
 type recallResponse struct {
-	Results []struct {
-		ID         string `json:"id"`
-		Text       string `json:"text"`
-		DocumentID string `json:"document_id"`
-	} `json:"results"`
+	Results []recallResult `json:"results"`
+	// chunks is keyed by chunk_id (per the Hindsight API).
+	Chunks map[string]recallChunk `json:"chunks"`
 }
 
 // Recall runs a similarity search against a bank (POST .../memories/recall).
 // Hindsight fuses semantic, keyword, graph, and temporal retrieval and does
 // not return a raw similarity score, so results are returned in rank order
-// with Score left zero.
+// with Score left zero. We request include.chunks so each result carries the
+// source chunk text needed for UI citations and highlighting.
 func (i *Indexer) Recall(ctx context.Context, bankID, query string, topK int) ([]domain.SearchResult, error) {
 	if topK <= 0 {
 		topK = 5
 	}
-	req := recallRequest{Query: query, MaxTokens: topK * 256}
+	req := recallRequest{
+		Query:     query,
+		MaxTokens: topK * 256,
+		Include:   &recallInclude{Chunks: &recallChunkInclude{MaxChunkTokens: 500}},
+	}
 	var resp recallResponse
 	if err := i.do(ctx, http.MethodPost, i.bankPath(bankID, "memories", "recall"), req, &resp); err != nil {
 		return nil, err
@@ -253,14 +280,21 @@ func (i *Indexer) Recall(ctx context.Context, bankID, query string, topK int) ([
 		if n >= topK {
 			break
 		}
-		docID := r.DocumentID
-		if docID == "" {
-			docID = r.ID
-		}
-		out = append(out, domain.SearchResult{
-			DocumentID: docID,
+		res := domain.SearchResult{
+			MemoryID:   r.ID,
+			DocumentID: r.DocumentID,
 			Content:    r.Text,
-		})
+			Context:    r.Context,
+			Entities:   r.Entities,
+			ChunkID:    r.ChunkID,
+		}
+		if r.ChunkID != "" {
+			if ch, ok := resp.Chunks[r.ChunkID]; ok {
+				res.ChunkText = ch.Text
+				res.ChunkIndex = ch.ChunkIndex
+			}
+		}
+		out = append(out, res)
 	}
 	return out, nil
 }

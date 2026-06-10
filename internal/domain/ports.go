@@ -7,11 +7,18 @@ import (
 	"github.com/google/uuid"
 )
 
-// SearchResult is a single relevant snippet returned from a RAG recall query.
+// SearchResult is a single relevant fact returned from a RAG recall query,
+// with the source references needed to cite and highlight it in the UI.
 type SearchResult struct {
-	DocumentID string  // source document id within the bank (if available)
-	Content    string  // recalled fact / chunk text
-	Score      float64 // relevance score
+	MemoryID   string   // Hindsight memory/fact id
+	DocumentID string   // source document id within the bank (our document UUID)
+	Content    string   // recalled fact / synthesized text
+	Score      float64  // relevance score (0 when the backend omits it)
+	Context    string   // source document title/label
+	Entities   []string // resolved entity names mentioned in the fact
+	ChunkID    string   // id of the source chunk the fact came from
+	ChunkIndex int      // ordinal of the chunk within the document
+	ChunkText  string   // raw source chunk text (the snippet to highlight)
 }
 
 // DocumentRepository persists raw document metadata.

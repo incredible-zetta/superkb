@@ -287,7 +287,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": { "mode": "raw", "raw": "{\n  \"query\": \"who is the CEO and how many vacation days\",\n  \"top_k\": 5\n}" },
             "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/search", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "search"] },
-            "description": "Runs similarity search (Hindsight recall) against the KB's active build. Returns { results: [{ document_id, content, score }] }. 409 if the KB is not enabled or has no active build."
+            "description": "Runs similarity search (Hindsight recall) against the KB's active build. Returns { results: [{ memory_id, document_id, content, score, context, entities, chunk_id, chunk_index, chunk_text }] }. chunk_text is the source passage for UI citation/highlight; document_id + chunk_id are deep-link anchors. Some consolidated results span multiple sources and omit chunk fields. 409 if the KB is not enabled or has no active build."
           }
         }
       ]

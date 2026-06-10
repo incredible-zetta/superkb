@@ -265,9 +265,17 @@ type searchRequest struct {
 }
 
 type searchHit struct {
-	DocumentID string  `json:"document_id,omitempty"`
-	Content    string  `json:"content"`
-	Score      float64 `json:"score"`
+	MemoryID   string   `json:"memory_id,omitempty"`
+	DocumentID string   `json:"document_id,omitempty"`
+	Content    string   `json:"content"`
+	Score      float64  `json:"score"`
+	Context    string   `json:"context,omitempty"`
+	Entities   []string `json:"entities,omitempty"`
+	ChunkID    string   `json:"chunk_id,omitempty"`
+	ChunkIndex int      `json:"chunk_index,omitempty"`
+	// ChunkText is the source snippet a UI can highlight / anchor to within
+	// the original document.
+	ChunkText string `json:"chunk_text,omitempty"`
 }
 
 func (h *KnowledgeBaseHandler) search(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +295,17 @@ func (h *KnowledgeBaseHandler) search(w http.ResponseWriter, r *http.Request) {
 	}
 	hits := make([]searchHit, len(results))
 	for i, res := range results {
-		hits[i] = searchHit{DocumentID: res.DocumentID, Content: res.Content, Score: res.Score}
+		hits[i] = searchHit{
+			MemoryID:   res.MemoryID,
+			DocumentID: res.DocumentID,
+			Content:    res.Content,
+			Score:      res.Score,
+			Context:    res.Context,
+			Entities:   res.Entities,
+			ChunkID:    res.ChunkID,
+			ChunkIndex: res.ChunkIndex,
+			ChunkText:  res.ChunkText,
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": hits})
 }

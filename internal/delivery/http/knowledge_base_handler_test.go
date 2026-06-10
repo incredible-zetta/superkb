@@ -185,7 +185,11 @@ func TestSearchEndpoint(t *testing.T) {
 			if q != "alpha" {
 				t.Errorf("expected query alpha, got %q", q)
 			}
-			return []domain.SearchResult{{DocumentID: "d1", Content: "alpha fact", Score: 0.9}}, nil
+			return []domain.SearchResult{{
+				MemoryID: "m1", DocumentID: "d1", Content: "alpha fact", Score: 0.9,
+				Context: "Doc A", Entities: []string{"Alpha"},
+				ChunkID: "c1", ChunkIndex: 3, ChunkText: "alpha source chunk text",
+			}}, nil
 		},
 	}
 	srv := newKBServer(svc)
@@ -206,6 +210,16 @@ func TestSearchEndpoint(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	if len(out.Results) != 1 || out.Results[0].Content != "alpha fact" {
 		t.Fatalf("unexpected results: %+v", out.Results)
+	}
+	h := out.Results[0]
+	if h.DocumentID != "d1" || h.ChunkID != "c1" || h.ChunkIndex != 3 {
+		t.Errorf("missing citation fields: %+v", h)
+	}
+	if h.ChunkText != "alpha source chunk text" {
+		t.Errorf("expected chunk_text for highlight, got %q", h.ChunkText)
+	}
+	if h.Context != "Doc A" || len(h.Entities) != 1 {
+		t.Errorf("missing context/entities: %+v", h)
 	}
 }
 

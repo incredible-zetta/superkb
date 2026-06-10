@@ -106,18 +106,20 @@ func TestIndexer_RetainEmptyNoop(t *testing.T) {
 }
 
 func TestIndexer_Recall(t *testing.T) {
+	var reqBody recallRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/default/banks/kb-1/memories/recall" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
 		_ = json.NewEncoder(w).Encode(recallResponse{
-			Results: []struct {
-				ID         string `json:"id"`
-				Text       string `json:"text"`
-				DocumentID string `json:"document_id"`
-			}{
-				{ID: "m1", Text: "alpha fact", DocumentID: "d1"},
-				{ID: "m2", Text: "beta fact", DocumentID: "d2"},
+			Results: []recallResult{
+				{ID: "m1", Text: "alpha fact", DocumentID: "d1", Context: "Doc A", Entities: []string{"Alpha"}, ChunkID: "c1"},
+				{ID: "m2", Text: "beta fact", DocumentID: "d2", ChunkID: "c2"},
+			},
+			Chunks: map[string]recallChunk{
+				"c1": {ID: "c1", Text: "alpha source chunk text", ChunkIndex: 3},
+				"c2": {ID: "c2", Text: "beta source chunk text", ChunkIndex: 7},
 			},
 		})
 	}))
@@ -128,11 +130,24 @@ func TestIndexer_Recall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
+	if reqBody.Include == nil || reqBody.Include.Chunks == nil {
+		t.Fatal("expected recall request to include chunks")
+	}
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
-	if results[0].Content != "alpha fact" || results[0].DocumentID != "d1" {
-		t.Errorf("unexpected first result: %+v", results[0])
+	r0 := results[0]
+	if r0.Content != "alpha fact" || r0.DocumentID != "d1" {
+		t.Errorf("unexpected first result: %+v", r0)
+	}
+	if r0.MemoryID != "m1" || r0.Context != "Doc A" || r0.ChunkID != "c1" {
+		t.Errorf("missing citation fields: %+v", r0)
+	}
+	if r0.ChunkText != "alpha source chunk text" || r0.ChunkIndex != 3 {
+		t.Errorf("chunk not mapped: text=%q index=%d", r0.ChunkText, r0.ChunkIndex)
+	}
+	if len(r0.Entities) != 1 || r0.Entities[0] != "Alpha" {
+		t.Errorf("entities not mapped: %+v", r0.Entities)
 	}
 }
 
