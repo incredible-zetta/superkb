@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"superkb/internal/config"
@@ -29,32 +30,62 @@ func TestIndexer_CreateBank(t *testing.T) {
 }
 
 func TestIndexer_Retain(t *testing.T) {
-	var req retainRequest
+	var gotFiles int
+	var gotRequest string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/default/banks/kb-1/memories" {
-			t.Errorf("unexpected path %q", r.URL.Path)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/default/banks/kb-1/files/retain":
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				t.Errorf("parse multipart: %v", err)
+			}
+			gotFiles = len(r.MultipartForm.File["files"])
+			gotRequest = r.FormValue("request")
+			_ = json.NewEncoder(w).Encode(retainResponse{OperationIDs: []string{"op-1", "op-2"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/default/banks/kb-1/operations/op-1":
+			_ = json.NewEncoder(w).Encode(operationResponse{Status: "completed"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/default/banks/kb-1/operations/op-2":
+			_ = json.NewEncoder(w).Encode(operationResponse{Status: "completed"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/default/banks/kb-1/operations":
+			_ = json.NewEncoder(w).Encode(operationsListResponse{}) // idle: no in-flight ops
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	idx := New(config.HindsightConfig{BaseURL: srv.URL})
 	docs := []domain.RAGDocument{
-		{DocumentID: "d1", Title: "Doc 1", Content: []byte("hello")},
-		{DocumentID: "d2", Title: "Doc 2", Content: []byte("world")},
+		{DocumentID: "d1", Title: "Doc 1", Filename: "d1.pdf", Content: []byte("hello")},
+		{DocumentID: "d2", Title: "Doc 2", Filename: "d2.pdf", Content: []byte("world")},
 	}
 	if err := idx.Retain(context.Background(), "kb-1", docs); err != nil {
 		t.Fatalf("Retain: %v", err)
 	}
-	if len(req.Items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(req.Items))
+	if gotFiles != 2 {
+		t.Fatalf("expected 2 uploaded files, got %d", gotFiles)
 	}
-	if req.Items[0].DocumentID != "d1" || req.Items[0].Content != "hello" {
-		t.Errorf("unexpected first item: %+v", req.Items[0])
+	if !strings.Contains(gotRequest, "\"document_id\":\"d1\"") {
+		t.Errorf("request metadata missing document_id d1: %s", gotRequest)
 	}
-	if req.Items[0].Timestamp != "unset" {
-		t.Errorf("expected timestamp unset, got %q", req.Items[0].Timestamp)
+	if !strings.Contains(gotRequest, "\"timestamp\":\"unset\"") {
+		t.Errorf("request metadata missing timestamp unset: %s", gotRequest)
+	}
+}
+
+func TestIndexer_RetainOperationFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			_ = json.NewEncoder(w).Encode(retainResponse{OperationIDs: []string{"op-x"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(operationResponse{Status: "failed", ErrorMessage: "rate limit"})
+	}))
+	defer srv.Close()
+
+	idx := New(config.HindsightConfig{BaseURL: srv.URL})
+	err := idx.Retain(context.Background(), "kb-1", []domain.RAGDocument{{DocumentID: "d1", Filename: "d1.pdf", Content: []byte("x")}})
+	if err == nil {
+		t.Fatal("expected error on failed operation")
 	}
 }
 

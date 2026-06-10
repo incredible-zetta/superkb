@@ -217,9 +217,14 @@ func (uc *KnowledgeBaseUseCase) runBuild(ctx context.Context, build *domain.Buil
 		if err != nil {
 			return fmt.Errorf("read %s: %w", doc.ID, err)
 		}
+		filename := doc.Filename
+		if filename == "" {
+			filename = doc.Title
+		}
 		ragDocs = append(ragDocs, domain.RAGDocument{
 			DocumentID: doc.ID.String(),
 			Title:      doc.Title,
+			Filename:   filename,
 			Content:    content,
 			Metadata:   doc.Metadata,
 		})

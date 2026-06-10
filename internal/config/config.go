@@ -64,8 +64,8 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		HTTP: HTTPConfig{
 			Port:            envInt("HTTP_PORT", 8080),
-			ReadTimeoutSec:  envInt("HTTP_READ_TIMEOUT_SEC", 15),
-			WriteTimeoutSec: envInt("HTTP_WRITE_TIMEOUT_SEC", 15),
+			ReadTimeoutSec:  envInt("HTTP_READ_TIMEOUT_SEC", 120),
+			WriteTimeoutSec: envInt("HTTP_WRITE_TIMEOUT_SEC", 120),
 		},
 		Postgres: PostgresConfig{
 			DSN: env("POSTGRES_DSN", "postgres://postgres:postgres@localhost:5432/superkb?sslmode=disable"),

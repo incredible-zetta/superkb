@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"superkb/internal/domain"
@@ -31,6 +32,7 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, err.Error())
 	default:
+		slog.Error("unhandled request error", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
 }

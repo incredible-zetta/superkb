@@ -53,7 +53,8 @@ type ObjectStorage interface {
 type RAGDocument struct {
 	DocumentID string // stable id used for idempotent upsert within the bank
 	Title      string
-	Content    []byte
+	Filename   string // original filename; drives server-side format conversion
+	Content    []byte // raw bytes (may be binary, e.g. PDF/DOCX)
 	Metadata   map[string]string
 }
 
