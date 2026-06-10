@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: superkb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hindsight:
+    # RAG indexer: extracts, chunks, and vectorizes documents into banks.
+    # LLM provider/key/model come from .env (MiniMax by default).
+    image: ghcr.io/vectorize-io/hindsight:latest
+    env_file: .env
+    environment:
+      HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_API_LLM_PROVIDER:-minimax}
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY:-}
+      HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:-MiniMax-Text-01}
+    ports:
+      - "8888:8888" # API
+      - "9999:9999" # Control plane UI
+    volumes:
+      - hindsightdata:/home/hindsight/.pg0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  superkb:
+    # The superkb engine. Stores raw docs in R2, groups them into knowledge
+    # bases, and builds RAG snapshots via Hindsight.
+    build: .
+    env_file: .env
+    environment:
+      # Override host-specific URLs for in-container networking. R2 + LLM
+      # secrets are inherited from .env unchanged.
+      POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/superkb?sslmode=disable
+      HINDSIGHT_BASE_URL: http://hindsight:8888
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hindsight:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  hindsightdata:
