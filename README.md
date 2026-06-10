@@ -1,36 +1,63 @@
+<div align="center">
+
 # superkb
 
-Document store with **knowledge bases** powered by RAG. Upload raw documents to
-object storage (R2), group them into knowledge bases, build immutable RAG
-snapshots via [Hindsight](https://github.com/vectorize-io/hindsight), and search
-the active snapshot. Switching snapshots is an instant rollback.
+**Self-hosted knowledge-base RAG engine for AI operators.**
+
+Upload raw documents, group them into knowledge bases, build immutable RAG
+snapshots, and search them with source citations — your infrastructure, your
+data, your rules.
+
+</div>
+
+---
+
+superkb is a [Clean Architecture](#architecture) Go service that turns piles of
+documents into searchable, citeable knowledge bases. Raw files live in
+S3-compatible object storage; vectorization and retrieval are owned by
+[Hindsight](https://github.com/vectorize-io/hindsight). Each knowledge base is
+built into an immutable snapshot, so switching versions is an instant rollback.
 
 ## Core model
 
-- **Document** — a raw uploaded file. Stored in object storage (R2) only.
-  Uploading does **not** vectorize anything; it is plain storage + metadata.
+- **Document** — a raw uploaded file (PDF, DOCX, images, text, …). Stored in
+  object storage only. Uploading does **not** vectorize anything; it is plain
+  storage + metadata.
 - **Knowledge base (KB)** — a named group of documents.
-- **Build** — an immutable RAG snapshot of a KB's documents at build time. A
-  build provisions a dedicated Hindsight *bank* and `retain`s every member
-  document into it (chunk → extract → vectorize). Runs asynchronously on a
-  background worker; poll build status until `ready`. Each build has its own bank.
+- **Build** — an immutable RAG snapshot of a KB's documents. A build provisions
+  a dedicated Hindsight *bank* and ingests every member document (convert →
+  chunk → extract → vectorize). Runs asynchronously on a background worker; poll
+  status until `ready`. Each build has its own bank.
 - **Enable** — points a KB's search at one ready build. A KB is searchable only
   when it is enabled **and** has an active build.
-- **Instant rollback** — every build's bank persists independently. Switching
-  the active build (Enable with a previous build id) flips search back with no
-  re-processing.
+- **Instant rollback** — every build's bank persists independently. Enabling a
+  previous build flips search back with no re-processing.
 
 ```
-Upload doc ──▶ R2 (raw bytes) + Postgres (metadata)
+Upload doc ──▶ object storage (raw bytes) + Postgres (metadata)
                     │
 Add to KB ──▶ kb_documents membership
                     │
-Build KB  ──▶ new Hindsight bank ──▶ retain all member docs ──▶ build = ready
+Build KB  ──▶ new Hindsight bank ──▶ ingest all member docs ──▶ build = ready
                     │
 Enable    ──▶ kb.active_build = build  (instant; previous builds stay intact)
                     │
-Search    ──▶ Hindsight recall(active build's bank)
+Search    ──▶ Hindsight recall(active build's bank) + source citations
 ```
+
+## Features
+
+- **Two upload modes** — JSON (`{title, content}`) or `multipart/form-data`
+  (real files up to 100 MB; converted to text server-side).
+- **Async builds** — heavy ingestion runs on a background worker behind a
+  swappable queue port; the API never blocks.
+- **Instant rollback** — switch the active build to any previous ready snapshot.
+- **Source citations** — opt-in references return the source filename, the
+  **page** an answer was found on, and a public file link, plus the raw chunk
+  text for client-side highlighting.
+- **Self-hosted** — Postgres + object storage + Hindsight, all under your
+  control. No data leaves your servers.
+- **HTTP basic auth** — single service credential for service-to-service use.
 
 ## Architecture
 
@@ -40,17 +67,18 @@ Clean Architecture — dependencies point inward only:
 cmd/api                  entrypoint + wiring + graceful shutdown
 internal/
   domain/                entities (Document, KnowledgeBase, Build) + ports
-  usecase/               DocumentUseCase, KnowledgeBaseUseCase (build/enable/rollback/search)
-  delivery/http/         chi router, handlers, DTOs, error mapping
+  usecase/               document + knowledge-base logic, build worker, references
+  delivery/http/         chi router, handlers, DTOs, basic auth, error mapping
   infra/
     postgres/            metadata repositories (no vectors)
     s3store/             S3/R2-compatible raw document storage
-    hindsight/           RAG indexer adapter (createBank/retain/recall/deleteBank)
+    hindsight/           RAG indexer adapter (bank/retain/recall + file upload)
+    extract/             pdftotext-based per-page text extractor
   config/                env-based configuration
 ```
 
-Postgres holds **metadata only**. Vectorization is owned entirely by Hindsight.
-Builds run on an in-process background worker (`usecase.BuildWorker` draining a
+Postgres holds **metadata only** — vectorization is owned entirely by Hindsight.
+Builds run on an in-process worker (`usecase.BuildWorker` draining a
 `ChannelBuildQueue`); the queue is a `domain.BuildQueue` port, swappable for a
 durable queue (Redis, SQS) without touching the usecase.
 
@@ -58,110 +86,138 @@ durable queue (Redis, SQS) without touching the usecase.
 
 - Go 1.23, chi router
 - PostgreSQL (metadata)
-- S3-compatible object storage — Cloudflare R2 in production, MinIO for dev
-- Hindsight (RAG: extraction, chunking, embeddings, multi-strategy recall)
+- S3-compatible object storage (Cloudflare R2, MinIO, AWS S3, …)
+- [Hindsight](https://github.com/vectorize-io/hindsight) — RAG: conversion,
+  chunking, embeddings, multi-strategy recall. LLM + embeddings are pluggable
+  (OpenAI-compatible gateways, local models, etc.).
+- `poppler-utils` (`pdftotext`) for per-page source extraction.
 
 ## Quick start
 
 ```bash
-cp .env.example .env        # set S3/R2 creds; OPENAI_API_KEY for hindsight
-export OPENAI_API_KEY=sk-xxx
-make docker-up              # postgres + minio + hindsight
+cp .env.example .env        # fill in your storage, Hindsight, and auth settings
+make docker-up              # postgres + hindsight + superkb
 make test                   # run unit tests
-make run                    # start API on :8080
 ```
+
+The API listens on `:8080`. See `.env.example` for every setting and
+`examples/` for a runnable curl walkthrough and a Postman collection.
+
+> **Configuration** lives entirely in environment variables — never commit real
+> secrets. `.env` is gitignored; only `.env.example` (with placeholders) is
+> tracked.
 
 ## API
 
 | Method | Path                                                  | Description                         |
 |--------|-------------------------------------------------------|-------------------------------------|
-| GET    | `/healthz`                                            | Liveness                            |
-| POST   | `/api/v1/documents`                                   | Upload a raw document               |
-| GET    | `/api/v1/documents`                                   | List documents                      |
+| GET    | `/healthz`                                            | Liveness (open)                     |
+| POST   | `/api/v1/documents`                                   | Upload a document (JSON or file)    |
+| GET    | `/api/v1/documents`                                   | List documents                     |
 | GET    | `/api/v1/documents/{id}`                              | Get document metadata               |
-| DELETE | `/api/v1/documents/{id}`                              | Delete document (R2 + metadata)     |
+| GET    | `/api/v1/documents/{id}/source`                       | Extracted text (per page) + file link |
+| DELETE | `/api/v1/documents/{id}`                              | Delete document (storage + metadata)|
 | POST   | `/api/v1/knowledge-bases`                             | Create a knowledge base             |
 | GET    | `/api/v1/knowledge-bases`                             | List knowledge bases                |
 | GET    | `/api/v1/knowledge-bases/{id}`                        | Get a knowledge base                |
 | DELETE | `/api/v1/knowledge-bases/{id}`                        | Delete KB (+ its banks)             |
 | PUT    | `/api/v1/knowledge-bases/{id}/documents/{docID}`      | Add document to KB                  |
 | DELETE | `/api/v1/knowledge-bases/{id}/documents/{docID}`      | Remove document from KB             |
-| POST   | `/api/v1/knowledge-bases/{id}/builds`                 | Build a RAG snapshot                |
+| POST   | `/api/v1/knowledge-bases/{id}/builds`                 | Build a RAG snapshot (async)        |
 | GET    | `/api/v1/knowledge-bases/{id}/builds`                 | List builds (for rollback)          |
 | POST   | `/api/v1/knowledge-bases/{id}/enable`                 | Enable a build for search           |
 | POST   | `/api/v1/knowledge-bases/{id}/disable`                | Disable search                      |
 | POST   | `/api/v1/knowledge-bases/{id}/search`                 | Search the active build             |
 
+All `/api/v1` routes require HTTP basic auth (`AUTH_*` in `.env`). `/healthz` is open.
+
 ### Example flow
 
-All `/api/v1` endpoints require HTTP basic auth (see `AUTH_*` in `.env`). Pass
-`-u user:pass` to curl. `/healthz` stays open.
-
 ```bash
-AUTH='-u superkb:change-me'
+AUTH='-u <user>:<pass>'      # your AUTH_USERNAME / AUTH_PASSWORD
+B=http://localhost:8080/api/v1
 
-# 1a. Upload a raw document as JSON (plain text content)
-d1=$(curl -s $AUTH -X POST localhost:8080/api/v1/documents \
-  -H 'Content-Type: application/json' \
+# 1. Upload — JSON or a real file
+d1=$(curl -s $AUTH -X POST $B/documents -H 'Content-Type: application/json' \
   -d '{"title":"Handbook","content":"vacation policy is 20 days"}' | jq -r .id)
+# or: curl -s $AUTH -X POST $B/documents -F 'file=@report.pdf' -F 'title=Report'
 
-# 1b. Or upload a real file via multipart (PDF, DOCX, images, etc.)
-curl -s $AUTH -X POST localhost:8080/api/v1/documents \
-  -F 'file=@report.pdf' \
-  -F 'title=Quarterly Report' \
-  -F 'metadata={"source":"finance"}'
-
-# 2. Create a knowledge base and add the document
-kb=$(curl -s $AUTH -X POST localhost:8080/api/v1/knowledge-bases \
-  -H 'Content-Type: application/json' \
+# 2. Create a KB and add the document
+kb=$(curl -s $AUTH -X POST $B/knowledge-bases -H 'Content-Type: application/json' \
   -d '{"name":"HR"}' | jq -r .id)
-curl $AUTH -X PUT localhost:8080/api/v1/knowledge-bases/$kb/documents/$d1
+curl $AUTH -X PUT $B/knowledge-bases/$kb/documents/$d1
 
-# 3. Build a RAG snapshot (async: returns a pending build immediately)
-build=$(curl -s $AUTH -X POST localhost:8080/api/v1/knowledge-bases/$kb/builds | jq -r .id)
+# 3. Build a snapshot (async → pending build)
+build=$(curl -s $AUTH -X POST $B/knowledge-bases/$kb/builds | jq -r .id)
 
-# 4. Poll until the build is ready (worker processes it in the background)
-curl -s $AUTH localhost:8080/api/v1/knowledge-bases/$kb/builds | jq '.builds[] | {id,status}'
+# 4. Poll until ready
+curl -s $AUTH $B/knowledge-bases/$kb/builds | jq '.builds[] | {id,status}'
 
-# 5. Enable the build for search
-curl $AUTH -X POST localhost:8080/api/v1/knowledge-bases/$kb/enable \
+# 5. Enable it
+curl $AUTH -X POST $B/knowledge-bases/$kb/enable \
   -H 'Content-Type: application/json' -d "{\"build_id\":\"$build\"}"
 
-# 6. Search
-curl $AUTH -X POST localhost:8080/api/v1/knowledge-bases/$kb/search \
-  -H 'Content-Type: application/json' -d '{"query":"how many vacation days?","top_k":5}'
+# 6. Search — with source citations
+curl $AUTH -X POST $B/knowledge-bases/$kb/search -H 'Content-Type: application/json' \
+  -d '{"query":"how many vacation days?","top_k":5,"include_references":true}'
 
-# 7. Instant rollback: re-enable any previous ready build
-curl -X POST localhost:8080/api/v1/knowledge-bases/$kb/enable \
+# 7. Instant rollback: enable any previous ready build
+curl $AUTH -X POST $B/knowledge-bases/$kb/enable \
   -H 'Content-Type: application/json' -d '{"build_id":"<previous-build-id>"}'
 ```
 
-## Configuration
+### Source citations
 
-Environment variables — see `.env.example`. Key vars: `POSTGRES_DSN`, `S3_*`
-(point at R2 in production), `HINDSIGHT_BASE_URL`, `HINDSIGHT_API_KEY`.
+With `"include_references": true`, each search result carries the data a UI
+needs to cite and highlight the answer:
+
+```json
+{
+  "document_id": "…",
+  "content": "…the extracted fact…",
+  "context": "Handbook.pdf",
+  "entities": ["…"],
+  "chunk_text": "…the source passage to highlight…",
+  "filename": "Handbook.pdf",
+  "page": 1,
+  "file_url": "https://<your-public-domain>/documents/<id>"
+}
+```
+
+Pair it with `GET /documents/{id}/source` (per-page text) to render the original
+document and scroll/highlight to the cited `chunk_text` on the reported `page`.
+`file_url` is built from `S3_PUBLIC_BASE_URL`; leave it unset to omit links.
 
 ## Testing
 
 ```bash
-make test         # usecase, delivery, and hindsight adapter use in-memory fakes / httptest
+make test         # in-memory fakes + httptest; no live Hindsight/Postgres/storage needed
 make test-cover
 ```
 
-Build orchestration, enable/disable, search gating, and instant rollback are all
-covered by `internal/usecase` tests with a fake RAG indexer — no live Hindsight,
-Postgres, or R2 required.
+Build orchestration, enable/disable, search gating, instant rollback, page
+lookup, and the Hindsight adapter are all covered by unit tests.
 
 ## Notes
 
-- `POST /api/v1/documents` accepts **both** JSON (`{title, content, metadata}`)
-  and `multipart/form-data` (`file` part + optional `title` / `metadata`
-  fields). Multipart is capped at 100 MB per request.
-- All `/api/v1` routes are protected by **HTTP basic auth** (single service
-  credential). Set `AUTH_ENABLED=false` to disable for local dev. `/healthz`
-  is always open.
-- Builds run **asynchronously** on a background worker. `POST .../builds`
-  returns a `pending` build; poll `GET .../builds` until `status` is `ready`,
-  then `enable` it. Tune the worker with `WORKER_CONCURRENCY` / `WORKER_QUEUE_SIZE`.
-  The default queue is in-process; swap `domain.BuildQueue` for a durable queue
-  to survive restarts.
+- Builds run **asynchronously**; poll `GET .../builds` until `ready`, then
+  `enable`. Tune with `WORKER_CONCURRENCY` / `WORKER_QUEUE_SIZE`. The default
+  queue is in-process; swap `domain.BuildQueue` for a durable queue to survive
+  restarts.
+- Page numbers are derived by matching chunk text against `pdftotext`-extracted
+  pages. Text PDFs resolve cleanly; scanned/image-only PDFs may report page `0`.
+- Consolidated multi-source facts have no single source chunk and omit
+  per-document reference fields.
+
+---
+
+<div align="center">
+
+Built by **[Incredible Zetta](https://github.com/incredible-zetta)** in
+partnership with **[PT Cipta Dua Saudara — CDS.ID](https://github.com/cds-id)**.
+
+🌐 [ciptadusa.com](https://ciptadusa.com) · 📧 [info@ciptadusa.com](mailto:info@ciptadusa.com)
+
+<sub>Self-hosted first · Agent-native · Single-image deploys</sub>
+
+</div>

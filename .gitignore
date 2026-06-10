@@ -4,3 +4,13 @@ bin/
 *.test
 vendor/
 test_files/
+
+# spec / planning docs (kept local, not published)
+docs/
+spec/
+specs/
+plan/
+plans/
+*.plan.md
+PLAN.md
+SPEC.md
