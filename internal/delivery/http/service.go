@@ -15,6 +15,7 @@ type DocumentService interface {
 	Get(ctx context.Context, id uuid.UUID) (*domain.Document, error)
 	List(ctx context.Context, limit, offset int) ([]domain.Document, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	Source(ctx context.Context, id uuid.UUID) (*usecase.DocumentSource, error)
 }
 
 // KnowledgeBaseService is the delivery-layer view of the knowledge base usecase.
@@ -29,5 +30,5 @@ type KnowledgeBaseService interface {
 	Enable(ctx context.Context, kbID, buildID uuid.UUID) (*domain.KnowledgeBase, error)
 	Disable(ctx context.Context, kbID uuid.UUID) (*domain.KnowledgeBase, error)
 	ListBuilds(ctx context.Context, kbID uuid.UUID) ([]domain.Build, error)
-	Search(ctx context.Context, kbID uuid.UUID, query string, topK int) ([]domain.SearchResult, error)
+	Search(ctx context.Context, kbID uuid.UUID, query string, opts usecase.SearchOptions) ([]domain.SearchResult, error)
 }

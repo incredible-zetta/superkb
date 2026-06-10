@@ -19,6 +19,12 @@ type SearchResult struct {
 	ChunkID    string   // id of the source chunk the fact came from
 	ChunkIndex int      // ordinal of the chunk within the document
 	ChunkText  string   // raw source chunk text (the snippet to highlight)
+
+	// Reference fields, populated when references are requested and the source
+	// document is resolvable.
+	FileURL  string // public, browsable link to the original file (if configured)
+	Filename string // original filename
+	Page     int    // 1-based page the chunk text was found on (0 = unknown)
 }
 
 // DocumentRepository persists raw document metadata.
@@ -54,6 +60,16 @@ type ObjectStorage interface {
 	Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
+}
+
+// TextExtractor extracts plain text from a raw document, split into pages.
+// Used to show source context and locate which page a chunk came from.
+// Implementations that cannot page-split (e.g. plain text) may return a
+// single page.
+type TextExtractor interface {
+	// ExtractPages returns the document text as an ordered slice of pages
+	// (index 0 = page 1). contentType hints the format (e.g. application/pdf).
+	ExtractPages(ctx context.Context, content []byte, contentType string) ([]string, error)
 }
 
 // RAGDocument is a document handed to the RAG indexer for processing.

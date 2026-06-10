@@ -20,6 +20,7 @@ type fakeDocService struct {
 	getFn    func(ctx context.Context, id uuid.UUID) (*domain.Document, error)
 	listFn   func(ctx context.Context, limit, offset int) ([]domain.Document, error)
 	deleteFn func(ctx context.Context, id uuid.UUID) error
+	sourceFn func(ctx context.Context, id uuid.UUID) (*usecase.DocumentSource, error)
 }
 
 func (f *fakeDocService) Upload(ctx context.Context, in usecase.UploadInput) (*domain.Document, error) {
@@ -32,6 +33,12 @@ func (f *fakeDocService) List(ctx context.Context, limit, offset int) ([]domain.
 	return f.listFn(ctx, limit, offset)
 }
 func (f *fakeDocService) Delete(ctx context.Context, id uuid.UUID) error { return f.deleteFn(ctx, id) }
+func (f *fakeDocService) Source(ctx context.Context, id uuid.UUID) (*usecase.DocumentSource, error) {
+	if f.sourceFn == nil {
+		return nil, domain.ErrNotFound
+	}
+	return f.sourceFn(ctx, id)
+}
 
 func newDocServer(svc DocumentService) *httptest.Server {
 	return httptest.NewServer(NewRouter(NewDocumentHandler(svc), NewKnowledgeBaseHandler(&fakeKBService{}), nil))

@@ -34,6 +34,7 @@ func (h *DocumentHandler) Routes(r chi.Router) {
 	r.Post("/documents", h.upload)
 	r.Get("/documents", h.list)
 	r.Get("/documents/{id}", h.get)
+	r.Get("/documents/{id}/source", h.source)
 	r.Delete("/documents/{id}", h.delete)
 }
 
@@ -189,4 +190,37 @@ func (h *DocumentHandler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type documentSourceResponse struct {
+	ID       uuid.UUID `json:"id"`
+	Title    string    `json:"title"`
+	Filename string    `json:"filename,omitempty"`
+	FileURL  string    `json:"file_url,omitempty"`
+	PageCount int      `json:"page_count"`
+	Pages    []string  `json:"pages"`
+}
+
+// source returns the document's extracted text split into pages, plus a public
+// file link. A UI uses this to render the source and highlight a chunk; the
+// page index aligns with the `page` field returned by search references.
+func (h *DocumentHandler) source(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid document id")
+		return
+	}
+	src, err := h.svc.Source(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, documentSourceResponse{
+		ID:        src.Document.ID,
+		Title:     src.Document.Title,
+		Filename:  src.Document.Filename,
+		FileURL:   src.FileURL,
+		PageCount: len(src.Pages),
+		Pages:     src.Pages,
+	})
 }

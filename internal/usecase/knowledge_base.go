@@ -15,31 +15,39 @@ import (
 // immutable RAG snapshots (builds), enabling search, and instant rollback by
 // switching the active build.
 type KnowledgeBaseUseCase struct {
-	repo    domain.KnowledgeBaseRepository
-	docs    domain.DocumentRepository
-	storage domain.ObjectStorage
-	indexer domain.RAGIndexer
-	queue   domain.BuildQueue
-	now     func() time.Time
-	newBank func(buildID uuid.UUID) string
+	repo          domain.KnowledgeBaseRepository
+	docs          domain.DocumentRepository
+	storage       domain.ObjectStorage
+	indexer       domain.RAGIndexer
+	queue         domain.BuildQueue
+	extractor     domain.TextExtractor
+	publicBaseURL string
+	now           func() time.Time
+	newBank       func(buildID uuid.UUID) string
 }
 
-// NewKnowledgeBaseUseCase wires a KnowledgeBaseUseCase.
+// NewKnowledgeBaseUseCase wires a KnowledgeBaseUseCase. extractor and
+// publicBaseURL power search references (file links + page numbers); both may
+// be zero-valued to disable that enrichment.
 func NewKnowledgeBaseUseCase(
 	repo domain.KnowledgeBaseRepository,
 	docs domain.DocumentRepository,
 	storage domain.ObjectStorage,
 	indexer domain.RAGIndexer,
 	queue domain.BuildQueue,
+	extractor domain.TextExtractor,
+	publicBaseURL string,
 ) *KnowledgeBaseUseCase {
 	return &KnowledgeBaseUseCase{
-		repo:    repo,
-		docs:    docs,
-		storage: storage,
-		indexer: indexer,
-		queue:   queue,
-		now:     time.Now,
-		newBank: func(buildID uuid.UUID) string { return "kb-build-" + buildID.String() },
+		repo:          repo,
+		docs:          docs,
+		storage:       storage,
+		indexer:       indexer,
+		queue:         queue,
+		extractor:     extractor,
+		publicBaseURL: publicBaseURL,
+		now:           time.Now,
+		newBank:       func(buildID uuid.UUID) string { return "kb-build-" + buildID.String() },
 	}
 }
 
@@ -291,8 +299,16 @@ func (uc *KnowledgeBaseUseCase) ListBuilds(ctx context.Context, kbID uuid.UUID) 
 	return uc.repo.ListBuilds(ctx, kbID)
 }
 
-// Search runs a similarity query against a knowledge base's active build.
-func (uc *KnowledgeBaseUseCase) Search(ctx context.Context, kbID uuid.UUID, query string, topK int) ([]domain.SearchResult, error) {
+// SearchOptions tunes a knowledge base search.
+type SearchOptions struct {
+	TopK              int
+	IncludeReferences bool // resolve file links + page numbers per result
+}
+
+// Search runs a similarity query against a knowledge base's active build. When
+// opts.IncludeReferences is set, each result is enriched with a public file
+// link, filename, and the page number its source chunk was found on.
+func (uc *KnowledgeBaseUseCase) Search(ctx context.Context, kbID uuid.UUID, query string, opts SearchOptions) ([]domain.SearchResult, error) {
 	if query == "" {
 		return nil, fmt.Errorf("search: %w: query required", domain.ErrInvalidInput)
 	}
@@ -307,9 +323,61 @@ func (uc *KnowledgeBaseUseCase) Search(ctx context.Context, kbID uuid.UUID, quer
 	if err != nil {
 		return nil, fmt.Errorf("search: active build: %w", err)
 	}
-	results, err := uc.indexer.Recall(ctx, build.BankID, query, topK)
+	results, err := uc.indexer.Recall(ctx, build.BankID, query, opts.TopK)
 	if err != nil {
 		return nil, fmt.Errorf("search: recall: %w", err)
 	}
+	if opts.IncludeReferences {
+		uc.addReferences(ctx, results)
+	}
 	return results, nil
+}
+
+// addReferences enriches results in place with file URL, filename, and page.
+// It resolves each distinct document once and caches its extracted pages so a
+// document is fetched and parsed at most once per search.
+func (uc *KnowledgeBaseUseCase) addReferences(ctx context.Context, results []domain.SearchResult) {
+	type cacheEntry struct {
+		doc   *domain.Document
+		pages []string
+	}
+	cache := map[string]*cacheEntry{}
+
+	for i := range results {
+		docID := results[i].DocumentID
+		if docID == "" {
+			continue
+		}
+		entry, ok := cache[docID]
+		if !ok {
+			entry = &cacheEntry{}
+			if id, err := uuid.Parse(docID); err == nil {
+				if doc, err := uc.docs.GetByID(ctx, id); err == nil {
+					entry.doc = doc
+					entry.pages = uc.extractPages(ctx, doc)
+				}
+			}
+			cache[docID] = entry
+		}
+		if entry.doc != nil {
+			enrichReference(&results[i], entry.doc, entry.pages, uc.publicBaseURL)
+		}
+	}
+}
+
+// extractPages reads a document from storage and extracts per-page text.
+// Returns nil on any failure (page lookup then degrades to 0).
+func (uc *KnowledgeBaseUseCase) extractPages(ctx context.Context, doc *domain.Document) []string {
+	if uc.extractor == nil {
+		return nil
+	}
+	content, err := uc.readContent(ctx, doc.StorageKey)
+	if err != nil {
+		return nil
+	}
+	pages, err := uc.extractor.ExtractPages(ctx, content, doc.ContentType)
+	if err != nil {
+		return nil
+	}
+	return pages
 }

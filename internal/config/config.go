@@ -36,6 +36,10 @@ type S3Config struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	UsePathStyle    bool
+	// PublicBaseURL is an optional public base URL (e.g. a CDN/public R2
+	// domain) used to build browsable file links for search references.
+	// The document storage key is appended to it.
+	PublicBaseURL string
 }
 
 // HindsightConfig holds settings for the Hindsight RAG indexer service.
@@ -77,6 +81,7 @@ func Load() (*Config, error) {
 			AccessKeyID:     env("S3_ACCESS_KEY_ID", ""),
 			SecretAccessKey: env("S3_SECRET_ACCESS_KEY", ""),
 			UsePathStyle:    envBool("S3_USE_PATH_STYLE", true),
+			PublicBaseURL:   env("S3_PUBLIC_BASE_URL", ""),
 		},
 		Hindsight: HindsightConfig{
 			BaseURL:    env("HINDSIGHT_BASE_URL", "http://localhost:8888"),

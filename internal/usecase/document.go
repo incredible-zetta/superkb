@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,14 +16,18 @@ import (
 // stored in object storage (R2) only — they are NOT vectorized here. Indexing
 // happens when a document is included in a knowledge base build.
 type DocumentUseCase struct {
-	repo    domain.DocumentRepository
-	storage domain.ObjectStorage
-	now     func() time.Time
+	repo          domain.DocumentRepository
+	storage       domain.ObjectStorage
+	extractor     domain.TextExtractor
+	publicBaseURL string
+	now           func() time.Time
 }
 
-// NewDocumentUseCase wires a DocumentUseCase.
-func NewDocumentUseCase(repo domain.DocumentRepository, storage domain.ObjectStorage) *DocumentUseCase {
-	return &DocumentUseCase{repo: repo, storage: storage, now: time.Now}
+// NewDocumentUseCase wires a DocumentUseCase. extractor and publicBaseURL may
+// be zero-valued; the Source endpoint then returns a single page and links are
+// omitted.
+func NewDocumentUseCase(repo domain.DocumentRepository, storage domain.ObjectStorage, extractor domain.TextExtractor, publicBaseURL string) *DocumentUseCase {
+	return &DocumentUseCase{repo: repo, storage: storage, extractor: extractor, publicBaseURL: publicBaseURL, now: time.Now}
 }
 
 // UploadInput carries data for a raw document upload.
@@ -82,6 +87,48 @@ func (uc *DocumentUseCase) Get(ctx context.Context, id uuid.UUID) (*domain.Docum
 		return nil, fmt.Errorf("get: %w", err)
 	}
 	return doc, nil
+}
+
+// DocumentSource is a document's extracted text plus reference metadata, used
+// by a UI to render the source and highlight/anchor into it.
+type DocumentSource struct {
+	Document *domain.Document
+	FileURL  string   // public link to the original file (if configured)
+	Pages    []string // extracted text, one entry per page (index 0 = page 1)
+}
+
+// Source fetches a document's content from storage and extracts its text,
+// split into pages, along with a public file link.
+func (uc *DocumentUseCase) Source(ctx context.Context, id uuid.UUID) (*DocumentSource, error) {
+	doc, err := uc.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("source: %w", err)
+	}
+	rc, err := uc.storage.Get(ctx, doc.StorageKey)
+	if err != nil {
+		return nil, fmt.Errorf("source: fetch content: %w", err)
+	}
+	defer rc.Close()
+	content, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, fmt.Errorf("source: read content: %w", err)
+	}
+
+	var pages []string
+	if uc.extractor != nil {
+		pages, err = uc.extractor.ExtractPages(ctx, content, doc.ContentType)
+		if err != nil {
+			return nil, fmt.Errorf("source: extract: %w", err)
+		}
+	} else {
+		pages = []string{string(content)}
+	}
+
+	return &DocumentSource{
+		Document: doc,
+		FileURL:  fileURL(uc.publicBaseURL, doc.StorageKey),
+		Pages:    pages,
+	}, nil
 }
 
 // List returns paginated document metadata.

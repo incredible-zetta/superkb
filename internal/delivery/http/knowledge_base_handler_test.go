@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"superkb/internal/domain"
+	"superkb/internal/usecase"
 )
 
 type fakeKBService struct {
@@ -56,8 +57,8 @@ func (f *fakeKBService) Disable(ctx context.Context, k uuid.UUID) (*domain.Knowl
 func (f *fakeKBService) ListBuilds(ctx context.Context, k uuid.UUID) ([]domain.Build, error) {
 	return f.listBldFn(ctx, k)
 }
-func (f *fakeKBService) Search(ctx context.Context, k uuid.UUID, q string, topK int) ([]domain.SearchResult, error) {
-	return f.searchFn(ctx, k, q, topK)
+func (f *fakeKBService) Search(ctx context.Context, k uuid.UUID, q string, opts usecase.SearchOptions) ([]domain.SearchResult, error) {
+	return f.searchFn(ctx, k, q, opts.TopK)
 }
 
 func newKBServer(svc KnowledgeBaseService) *httptest.Server {

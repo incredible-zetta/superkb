@@ -13,6 +13,7 @@ import (
 
 	"superkb/internal/config"
 	deliveryhttp "superkb/internal/delivery/http"
+	"superkb/internal/infra/extract"
 	"superkb/internal/infra/hindsight"
 	"superkb/internal/infra/postgres"
 	"superkb/internal/infra/s3store"
@@ -56,12 +57,13 @@ func run() error {
 	}
 
 	indexer := hindsight.New(cfg.Hindsight)
+	extractor := extract.NewPDFExtractor()
 	docRepo := postgres.NewDocumentRepository(pool)
 	kbRepo := postgres.NewKnowledgeBaseRepository(pool)
 
 	queue := usecase.NewChannelBuildQueue(cfg.Worker.QueueSize)
-	docUC := usecase.NewDocumentUseCase(docRepo, storage)
-	kbUC := usecase.NewKnowledgeBaseUseCase(kbRepo, docRepo, storage, indexer, queue)
+	docUC := usecase.NewDocumentUseCase(docRepo, storage, extractor, cfg.S3.PublicBaseURL)
+	kbUC := usecase.NewKnowledgeBaseUseCase(kbRepo, docRepo, storage, indexer, queue, extractor, cfg.S3.PublicBaseURL)
 
 	// Background build worker: drains the queue and runs the RAG indexing
 	// pipeline off the request path.

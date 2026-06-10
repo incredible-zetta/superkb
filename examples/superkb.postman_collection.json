@@ -7,17 +7,49 @@
   "auth": {
     "type": "basic",
     "basic": [
-      { "key": "username", "value": "{{authUser}}", "type": "string" },
-      { "key": "password", "value": "{{authPass}}", "type": "string" }
+      {
+        "key": "username",
+        "value": "{{authUser}}",
+        "type": "string"
+      },
+      {
+        "key": "password",
+        "value": "{{authPass}}",
+        "type": "string"
+      }
     ]
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
-    { "key": "authUser", "value": "superkb", "type": "string" },
-    { "key": "authPass", "value": "change-me", "type": "string" },
-    { "key": "documentId", "value": "", "type": "string" },
-    { "key": "kbId", "value": "", "type": "string" },
-    { "key": "buildId", "value": "", "type": "string" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "authUser",
+      "value": "superkb",
+      "type": "string"
+    },
+    {
+      "key": "authPass",
+      "value": "change-me",
+      "type": "string"
+    },
+    {
+      "key": "documentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "kbId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "buildId",
+      "value": "",
+      "type": "string"
+    }
   ],
   "item": [
     {
@@ -26,10 +58,20 @@
         {
           "name": "Healthz (no auth)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/healthz", "host": ["{{baseUrl}}"], "path": ["healthz"] }
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
           }
         }
       ]
@@ -54,12 +96,27 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"HR Handbook\",\n  \"content\": \"Employees get 20 days of paid vacation per year. Sick leave is 10 days. The CEO is Jane Smith.\",\n  \"metadata\": { \"dept\": \"hr\" }\n}"
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/documents", "host": ["{{baseUrl}}"], "path": ["api", "v1", "documents"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents"
+              ]
+            },
             "description": "Upload a plain-text document. Body fields: title (required), content (required), content_type, filename, metadata."
           }
         },
@@ -84,12 +141,36 @@
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "file", "type": "file", "src": "", "description": "PDF, DOCX, PPTX, XLSX, images, txt, md, csv (max 100MB)" },
-                { "key": "title", "value": "Sample Doc", "type": "text" },
-                { "key": "metadata", "value": "{\"source\":\"postman\"}", "type": "text", "description": "JSON object string (optional)" }
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "PDF, DOCX, PPTX, XLSX, images, txt, md, csv (max 100MB)"
+                },
+                {
+                  "key": "title",
+                  "value": "Sample Doc",
+                  "type": "text"
+                },
+                {
+                  "key": "metadata",
+                  "value": "{\"source\":\"postman\"}",
+                  "type": "text",
+                  "description": "JSON object string (optional)"
+                }
               ]
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/documents", "host": ["{{baseUrl}}"], "path": ["api", "v1", "documents"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/documents",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents"
+              ]
+            },
             "description": "Select a file for the 'file' part. Title defaults to the filename if omitted."
           }
         },
@@ -100,11 +181,23 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/documents?limit=20&offset=0",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "documents"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents"
+              ],
               "query": [
-                { "key": "limit", "value": "20" },
-                { "key": "offset", "value": "0" }
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
               ]
             }
           }
@@ -114,7 +207,39 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/documents/{{documentId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "documents", "{{documentId}}"] }
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{documentId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get document source (pages + file link)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/documents/{{documentId}}/source",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{documentId}}",
+                "source"
+              ]
+            },
+            "description": "Returns the document's extracted text split into pages (index 0 = page 1), plus file_url (public link when S3_PUBLIC_BASE_URL is set) and page_count. A UI renders pages[] and highlights a chunk; the page number aligns with search references."
           }
         },
         {
@@ -122,7 +247,18 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/documents/{{documentId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "documents", "{{documentId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "documents",
+                "{{documentId}}"
+              ]
+            },
             "description": "Removes the object from R2 and the metadata row."
           }
         }
@@ -148,9 +284,27 @@
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Demo KB\",\n  \"description\": \"created from Postman\"\n}" },
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo KB\",\n  \"description\": \"created from Postman\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases"
+              ]
+            },
             "description": "A new KB is disabled and has no active build until you build + enable."
           }
         },
@@ -161,11 +315,23 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/knowledge-bases?limit=20&offset=0",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "knowledge-bases"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases"
+              ],
               "query": [
-                { "key": "limit", "value": "20" },
-                { "key": "offset", "value": "0" }
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
               ]
             }
           }
@@ -175,7 +341,18 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}"
+              ]
+            },
             "description": "Returns enabled, active_build_id, searchable."
           }
         },
@@ -184,7 +361,20 @@
           "request": {
             "method": "PUT",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/documents/{{documentId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "documents", "{{documentId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "documents",
+                "{{documentId}}"
+              ]
+            },
             "description": "Adds a document to the KB membership set. Returns 204."
           }
         },
@@ -193,7 +383,20 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/documents/{{documentId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "documents", "{{documentId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/documents/{{documentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "documents",
+                "{{documentId}}"
+              ]
+            },
             "description": "Removes a document from the membership set (does not affect existing builds). Returns 204."
           }
         },
@@ -202,7 +405,18 @@
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}"
+              ]
+            },
             "description": "Deletes the KB and reclaims its build banks. Returns 204."
           }
         }
@@ -229,7 +443,19 @@
           "request": {
             "method": "POST",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/builds", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "builds"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/builds",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "builds"
+              ]
+            },
             "description": "Returns immediately with a pending build. A background worker provisions a Hindsight bank and ingests every member document. Poll 'List builds' until status is ready. Large PDFs can take minutes."
           }
         },
@@ -252,7 +478,19 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/builds", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "builds"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/builds",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "builds"
+              ]
+            },
             "description": "Newest first. Each build has status: pending | processing | ready | failed, plus bank_id and document_count."
           }
         },
@@ -260,10 +498,30 @@
           "name": "Enable build (activate / rollback)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"build_id\": \"{{buildId}}\"\n}" },
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/enable", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "enable"] },
-            "description": "Points search at the given ready build and enables the KB. To roll back, enable a previous build id — instant, no reprocessing. Build must be 'ready' (else 409)."
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"build_id\": \"{{buildId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/enable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "enable"
+              ]
+            },
+            "description": "Points search at the given ready build and enables the KB. To roll back, enable a previous build id \u2014 instant, no reprocessing. Build must be 'ready' (else 409)."
           }
         },
         {
@@ -271,7 +529,19 @@
           "request": {
             "method": "POST",
             "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/disable", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "disable"] },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "disable"
+              ]
+            },
             "description": "Turns off search without dropping builds."
           }
         }
@@ -284,10 +554,30 @@
           "name": "Search knowledge base",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"query\": \"who is the CEO and how many vacation days\",\n  \"top_k\": 5\n}" },
-            "url": { "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/search", "host": ["{{baseUrl}}"], "path": ["api", "v1", "knowledge-bases", "{{kbId}}", "search"] },
-            "description": "Runs similarity search (Hindsight recall) against the KB's active build. Returns { results: [{ memory_id, document_id, content, score, context, entities, chunk_id, chunk_index, chunk_text }] }. chunk_text is the source passage for UI citation/highlight; document_id + chunk_id are deep-link anchors. Some consolidated results span multiple sources and omit chunk fields. 409 if the KB is not enabled or has no active build."
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"who is the CEO and how many vacation days\",\n  \"top_k\": 5,\n  \"include_references\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/knowledge-bases/{{kbId}}/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge-bases",
+                "{{kbId}}",
+                "search"
+              ]
+            },
+            "description": "Runs similarity search (Hindsight recall) against the KB's active build. Set include_references:true to also resolve each result's file_url (public link, needs S3_PUBLIC_BASE_URL), filename, and page (1-based page the source chunk was found on). Returns { results: [{ memory_id, document_id, content, score, context, entities, chunk_id, chunk_index, chunk_text, file_url, filename, page }] }. Use /documents/{id}/source to fetch the full page text to highlight. 409 if the KB is not enabled."
           }
         }
       ]

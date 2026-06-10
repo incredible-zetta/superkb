@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"superkb/internal/domain"
+	"superkb/internal/usecase"
 )
 
 // KnowledgeBaseHandler serves knowledge base HTTP endpoints.
@@ -260,8 +261,9 @@ func (h *KnowledgeBaseHandler) disable(w http.ResponseWriter, r *http.Request) {
 }
 
 type searchRequest struct {
-	Query string `json:"query"`
-	TopK  int    `json:"top_k"`
+	Query             string `json:"query"`
+	TopK              int    `json:"top_k"`
+	IncludeReferences bool   `json:"include_references"`
 }
 
 type searchHit struct {
@@ -276,6 +278,10 @@ type searchHit struct {
 	// ChunkText is the source snippet a UI can highlight / anchor to within
 	// the original document.
 	ChunkText string `json:"chunk_text,omitempty"`
+	// Reference fields (populated when include_references is true).
+	FileURL  string `json:"file_url,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	Page     int    `json:"page,omitempty"`
 }
 
 func (h *KnowledgeBaseHandler) search(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +294,10 @@ func (h *KnowledgeBaseHandler) search(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	results, err := h.svc.Search(r.Context(), id, req.Query, req.TopK)
+	results, err := h.svc.Search(r.Context(), id, req.Query, usecase.SearchOptions{
+		TopK:              req.TopK,
+		IncludeReferences: req.IncludeReferences,
+	})
 	if err != nil {
 		writeDomainError(w, err)
 		return
@@ -305,6 +314,9 @@ func (h *KnowledgeBaseHandler) search(w http.ResponseWriter, r *http.Request) {
 			ChunkID:    res.ChunkID,
 			ChunkIndex: res.ChunkIndex,
 			ChunkText:  res.ChunkText,
+			FileURL:    res.FileURL,
+			Filename:   res.Filename,
+			Page:       res.Page,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": hits})

@@ -13,7 +13,7 @@ import (
 func newDocUC() (*DocumentUseCase, *fakeDocRepo, *fakeStorage) {
 	repo := newFakeDocRepo()
 	storage := newFakeStorage()
-	return NewDocumentUseCase(repo, storage), repo, storage
+	return NewDocumentUseCase(repo, storage, nil, ""), repo, storage
 }
 
 func TestUpload_StoresContentAndMetadata(t *testing.T) {

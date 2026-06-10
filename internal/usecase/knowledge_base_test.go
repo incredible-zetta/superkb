@@ -16,7 +16,7 @@ func newKBUC() (*KnowledgeBaseUseCase, *fakeKBRepo, *fakeDocRepo, *fakeStorage, 
 	kbRepo := newFakeKBRepo(docs)
 	indexer := newFakeIndexer()
 	queue := &syncQueue{}
-	uc := NewKnowledgeBaseUseCase(kbRepo, docs, storage, indexer, queue)
+	uc := NewKnowledgeBaseUseCase(kbRepo, docs, storage, indexer, queue, nil, "")
 	queue.processor = uc // sync queue processes builds inline via the usecase
 	return uc, kbRepo, docs, storage, indexer
 }
@@ -24,7 +24,7 @@ func newKBUC() (*KnowledgeBaseUseCase, *fakeKBRepo, *fakeDocRepo, *fakeStorage, 
 // uploadDoc seeds a document via its own usecase so storage + repo agree.
 func uploadDoc(t *testing.T, docs *fakeDocRepo, storage *fakeStorage, title, body string) *domain.Document {
 	t.Helper()
-	doc, err := NewDocumentUseCase(docs, storage).Upload(context.Background(), UploadInput{Title: title, Content: []byte(body)})
+	doc, err := NewDocumentUseCase(docs, storage, nil, "").Upload(context.Background(), UploadInput{Title: title, Content: []byte(body)})
 	if err != nil {
 		t.Fatalf("seed upload failed: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestSearch_RequiresEnabledKB(t *testing.T) {
 	}
 
 	// Not enabled yet.
-	_, err := uc.Search(context.Background(), kb.ID, "alpha", 5)
+	_, err := uc.Search(context.Background(), kb.ID, "alpha", SearchOptions{TopK: 5})
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected ErrConflict before enable, got %v", err)
 	}
@@ -159,7 +159,7 @@ func TestEnableThenSearch(t *testing.T) {
 	if _, err := uc.Enable(context.Background(), kb.ID, build.ID); err != nil {
 		t.Fatalf("Enable error: %v", err)
 	}
-	results, err := uc.Search(context.Background(), kb.ID, "alpha", 5)
+	results, err := uc.Search(context.Background(), kb.ID, "alpha", SearchOptions{TopK: 5})
 	if err != nil {
 		t.Fatalf("Search error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestRollback(t *testing.T) {
 	}
 
 	// v2 active: search returns 2 docs.
-	res2, _ := uc.Search(context.Background(), kb.ID, "anything", 10)
+	res2, _ := uc.Search(context.Background(), kb.ID, "anything", SearchOptions{TopK: 10})
 	if len(res2) != 2 {
 		t.Fatalf("v2 expected 2 results, got %d", len(res2))
 	}
@@ -214,7 +214,7 @@ func TestRollback(t *testing.T) {
 	if _, err := uc.Enable(context.Background(), kb.ID, buildV1.ID); err != nil {
 		t.Fatalf("rollback to v1: %v", err)
 	}
-	res1, _ := uc.Search(context.Background(), kb.ID, "anything", 10)
+	res1, _ := uc.Search(context.Background(), kb.ID, "anything", SearchOptions{TopK: 10})
 	if len(res1) != 1 {
 		t.Fatalf("v1 expected 1 result after rollback, got %d", len(res1))
 	}
