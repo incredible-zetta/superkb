@@ -24,13 +24,15 @@ services:
       HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_API_LLM_PROVIDER:-minimax}
       HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY:-}
       HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_API_LLM_MODEL:-MiniMax-Text-01}
+      HINDSIGHT_API_LLM_EXTRA_BODY: ${HINDSIGHT_API_LLM_EXTRA_BODY:-}
+      HINDSIGHT_API_LLM_STRICT_SCHEMA: ${HINDSIGHT_API_LLM_STRICT_SCHEMA:-}
     ports:
       - "8888:8888" # API
       - "9999:9999" # Control plane UI
     volumes:
       - hindsightdata:/home/hindsight/.pg0
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8888/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10

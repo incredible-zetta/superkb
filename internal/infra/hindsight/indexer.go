@@ -48,10 +48,10 @@ func (i *Indexer) bankPath(parts ...string) string {
 	return p
 }
 
-// CreateBank provisions a new isolated bank.
+// CreateBank provisions a new isolated bank. Hindsight banks are created via
+// PUT on the bank resource; the body may carry optional config.
 func (i *Indexer) CreateBank(ctx context.Context, bankID string) error {
-	body := map[string]string{"bank_id": bankID}
-	return i.do(ctx, http.MethodPost, i.bankPath(), body, nil)
+	return i.do(ctx, http.MethodPut, i.bankPath(bankID), map[string]any{}, nil)
 }
 
 // DeleteBank removes a bank and all its data.
@@ -71,8 +71,8 @@ type retainRequest struct {
 	Items []retainItem `json:"items"`
 }
 
-// Retain ingests documents into a bank. Each document is upserted by its
-// DocumentID, so retaining the same build twice is idempotent.
+// Retain ingests documents into a bank (POST .../memories). Each document is
+// upserted by its DocumentID, so retaining the same build twice is idempotent.
 func (i *Indexer) Retain(ctx context.Context, bankID string, docs []domain.RAGDocument) error {
 	if len(docs) == 0 {
 		return nil
@@ -87,7 +87,7 @@ func (i *Indexer) Retain(ctx context.Context, bankID string, docs []domain.RAGDo
 			Timestamp:  "unset", // reference docs have no event time
 		}
 	}
-	return i.do(ctx, http.MethodPost, i.bankPath(bankID, "retain"), retainRequest{Items: items}, nil)
+	return i.do(ctx, http.MethodPost, i.bankPath(bankID, "memories"), retainRequest{Items: items}, nil)
 }
 
 type recallRequest struct {
@@ -97,20 +97,23 @@ type recallRequest struct {
 
 type recallResponse struct {
 	Results []struct {
-		ID    string  `json:"id"`
-		Text  string  `json:"text"`
-		Score float64 `json:"score"`
+		ID         string `json:"id"`
+		Text       string `json:"text"`
+		DocumentID string `json:"document_id"`
 	} `json:"results"`
 }
 
-// Recall runs a similarity search against a bank.
+// Recall runs a similarity search against a bank (POST .../memories/recall).
+// Hindsight fuses semantic, keyword, graph, and temporal retrieval and does
+// not return a raw similarity score, so results are returned in rank order
+// with Score left zero.
 func (i *Indexer) Recall(ctx context.Context, bankID, query string, topK int) ([]domain.SearchResult, error) {
 	if topK <= 0 {
 		topK = 5
 	}
 	req := recallRequest{Query: query, MaxTokens: topK * 256}
 	var resp recallResponse
-	if err := i.do(ctx, http.MethodPost, i.bankPath(bankID, "recall"), req, &resp); err != nil {
+	if err := i.do(ctx, http.MethodPost, i.bankPath(bankID, "memories", "recall"), req, &resp); err != nil {
 		return nil, err
 	}
 	out := make([]domain.SearchResult, 0, len(resp.Results))
@@ -118,10 +121,13 @@ func (i *Indexer) Recall(ctx context.Context, bankID, query string, topK int) ([
 		if n >= topK {
 			break
 		}
+		docID := r.DocumentID
+		if docID == "" {
+			docID = r.ID
+		}
 		out = append(out, domain.SearchResult{
-			DocumentID: r.ID,
+			DocumentID: docID,
 			Content:    r.Text,
-			Score:      r.Score,
 		})
 	}
 	return out, nil
