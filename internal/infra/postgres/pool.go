@@ -3,13 +3,31 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // NewPool opens a pgx connection pool and verifies connectivity.
+//
+// The pool is explicitly sized rather than relying on pgx defaults
+// (max = max(4, numCPU), min = 0). A warm minimum avoids cold-connection
+// latency on the first queries after idle, and an explicit ceiling bounds
+// connection use under concurrent search + background builds so the database
+// is not overwhelmed.
 func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: parse config: %w", err)
+	}
+	maxConns := int32(4 * runtime.NumCPU())
+	if maxConns < 10 {
+		maxConns = 10
+	}
+	cfg.MaxConns = maxConns
+	cfg.MinConns = 2
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: new pool: %w", err)
 	}
