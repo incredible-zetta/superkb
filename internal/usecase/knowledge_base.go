@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ type KnowledgeBaseUseCase struct {
 	indexer       domain.RAGIndexer
 	queue         domain.BuildQueue
 	extractor     domain.TextExtractor
+	converter     domain.DocumentConverter
 	publicBaseURL string
 	now           func() time.Time
 	newBank       func(buildID uuid.UUID) string
@@ -49,6 +51,14 @@ func NewKnowledgeBaseUseCase(
 		now:           time.Now,
 		newBank:       func(buildID uuid.UUID) string { return "kb-build-" + buildID.String() },
 	}
+}
+
+// WithConverter sets an optional document converter (OCR) used to extract text
+// from scanned PDFs/images before retain. When nil, builds send raw bytes to
+// the indexer unchanged. Returns the receiver for chaining.
+func (uc *KnowledgeBaseUseCase) WithConverter(c domain.DocumentConverter) *KnowledgeBaseUseCase {
+	uc.converter = c
+	return uc
 }
 
 // Create makes a new (disabled, empty) knowledge base.
@@ -229,13 +239,29 @@ func (uc *KnowledgeBaseUseCase) runBuild(ctx context.Context, build *domain.Buil
 		if filename == "" {
 			filename = doc.Title
 		}
-		ragDocs = append(ragDocs, domain.RAGDocument{
+		rd := domain.RAGDocument{
 			DocumentID: doc.ID.String(),
 			Title:      doc.Title,
 			Filename:   filename,
 			Content:    content,
 			Metadata:   doc.Metadata,
-		})
+		}
+		// Optional OCR: extract text from scanned PDFs/images up front so
+		// Hindsight indexes real text instead of failing markitdown OCR. On
+		// success we send the extracted text (as a .md filename) instead of raw
+		// bytes; ok=false means the converter skipped this type, so raw bytes
+		// are retained unchanged.
+		if uc.converter != nil {
+			text, ok, cerr := uc.converter.Convert(ctx, content, doc.ContentType, filename)
+			if cerr != nil {
+				return fmt.Errorf("ocr %s: %w", doc.ID, cerr)
+			}
+			if ok {
+				rd.Content = []byte(text)
+				rd.Filename = ocrTextFilename(filename)
+			}
+		}
+		ragDocs = append(ragDocs, rd)
 	}
 	if err := uc.indexer.Retain(ctx, build.BankID, ragDocs); err != nil {
 		return fmt.Errorf("retain documents: %w", err)
@@ -250,6 +276,18 @@ func (uc *KnowledgeBaseUseCase) readContent(ctx context.Context, key string) ([]
 	}
 	defer rc.Close()
 	return io.ReadAll(rc)
+}
+
+// ocrTextFilename converts a source filename to a .md name so the indexer
+// treats OCR output as text/markdown rather than re-parsing it as a binary.
+func ocrTextFilename(filename string) string {
+	if i := strings.LastIndex(filename, "."); i > 0 {
+		filename = filename[:i]
+	}
+	if filename == "" {
+		filename = "document"
+	}
+	return filename + ".md"
 }
 
 // Enable activates a ready build for search and enables the knowledge base.

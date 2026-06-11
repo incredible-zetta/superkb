@@ -72,6 +72,22 @@ type TextExtractor interface {
 	ExtractPages(ctx context.Context, content []byte, contentType string) ([]string, error)
 }
 
+// DocumentConverter converts a raw document (possibly a scanned PDF or image)
+// into plain text / markdown before it is retained. It is the OCR seam: the
+// default Hindsight file-retain path uses markitdown server-side and cannot OCR
+// scanned/image documents without tesseract, so an external converter (e.g.
+// Mistral OCR) is plugged in here to extract text up front.
+//
+// Implementations should return ok=false when they do not handle a given
+// content type (e.g. plain text), so the caller can fall back to sending the
+// raw bytes to the indexer unchanged.
+type DocumentConverter interface {
+	// Convert returns the extracted text for the document and ok=true when the
+	// converter handled it. When ok=false the document was intentionally
+	// skipped (unsupported type) and the caller should retain raw bytes.
+	Convert(ctx context.Context, content []byte, contentType, filename string) (text string, ok bool, err error)
+}
+
 // RAGDocument is a document handed to the RAG indexer for processing.
 type RAGDocument struct {
 	DocumentID string // stable id used for idempotent upsert within the bank

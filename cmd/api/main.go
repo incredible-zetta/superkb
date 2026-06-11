@@ -15,6 +15,7 @@ import (
 	deliveryhttp "superkb/internal/delivery/http"
 	"superkb/internal/infra/extract"
 	"superkb/internal/infra/hindsight"
+	"superkb/internal/infra/ocr"
 	"superkb/internal/infra/postgres"
 	"superkb/internal/infra/s3store"
 	"superkb/internal/usecase"
@@ -64,6 +65,14 @@ func run() error {
 	queue := usecase.NewChannelBuildQueue(cfg.Worker.QueueSize)
 	docUC := usecase.NewDocumentUseCase(docRepo, storage, extractor, cfg.S3.PublicBaseURL)
 	kbUC := usecase.NewKnowledgeBaseUseCase(kbRepo, docRepo, storage, indexer, queue, extractor, cfg.S3.PublicBaseURL)
+	// Optional vision-LLM OCR (e.g. MiniMax-VL-01 via 9router): when configured,
+	// scanned PDFs/images are OCR'd to text before retain. NewVision returns nil
+	// (OCR disabled) without an API key or model, and WithConverter(nil) is a
+	// no-op.
+	if conv := ocr.NewVision(cfg.VisionOCR); conv != nil {
+		kbUC.WithConverter(conv)
+		slog.Info("vision OCR enabled", "model", cfg.VisionOCR.Model)
+	}
 
 	// Background build worker: drains the queue and runs the RAG indexing
 	// pipeline off the request path.

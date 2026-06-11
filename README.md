@@ -206,6 +206,16 @@ lookup, and the Hindsight adapter are all covered by unit tests.
   restarts.
 - Page numbers are derived by matching chunk text against `pdftotext`-extracted
   pages. Text PDFs resolve cleanly; scanned/image-only PDFs may report page `0`.
+- **Scanned PDFs / images (OCR).** By default Hindsight converts files with
+  markitdown, which cannot OCR scanned PDFs or images (no tesseract in the
+  image) and yields empty text. Set the vision-LLM OCR knobs to extract text in
+  superkb *before* retain: `VISION_OCR_API_KEY`, `VISION_OCR_BASE_URL`
+  (OpenAI-compatible, e.g. 9router), `VISION_OCR_MODEL` (e.g.
+  `minimax/MiniMax-VL-01`). PDFs are rasterized to PNG per page (`pdftoppm`,
+  bundled) and sent one image per chat call; images are sent directly.
+  `VISION_OCR_MAX_PAGES` caps pages per document. OCR runs only at build time;
+  leave the key/model empty to disable and fall back to markitdown. Text and
+  office documents are passed through untouched.
 - Consolidated multi-source facts have no single source chunk and omit
   per-document reference fields.
 - **Search latency (sub-500ms).** KB search cost is dominated by two Hindsight

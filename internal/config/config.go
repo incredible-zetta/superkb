@@ -14,6 +14,7 @@ type Config struct {
 	Hindsight HindsightConfig
 	Auth      AuthConfig
 	Worker    WorkerConfig
+	VisionOCR VisionOCRConfig
 }
 
 // HTTPConfig holds HTTP server settings.
@@ -63,6 +64,19 @@ type WorkerConfig struct {
 	QueueSize   int
 }
 
+// VisionOCRConfig holds settings for the vision-LLM OCR document converter
+// (e.g. MiniMax-VL-01 via a 9router/OpenAI-compatible endpoint). When APIKey or
+// Model is empty the converter is disabled and builds fall back to sending raw
+// bytes to Hindsight (markitdown).
+type VisionOCRConfig struct {
+	APIKey     string
+	BaseURL    string // OpenAI-compatible base, e.g. http://host.docker.internal:20128/v1
+	Model      string // e.g. minimax/MiniMax-VL-01
+	Prompt     string // extraction instruction; default applied when empty
+	TimeoutSec int
+	MaxPages   int // safety cap on PDF pages rasterized per document (0 = no cap)
+}
+
 // Load reads configuration from environment variables, applying defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
@@ -97,6 +111,14 @@ func Load() (*Config, error) {
 		Worker: WorkerConfig{
 			Concurrency: envInt("WORKER_CONCURRENCY", 2),
 			QueueSize:   envInt("WORKER_QUEUE_SIZE", 64),
+		},
+		VisionOCR: VisionOCRConfig{
+			APIKey:     env("VISION_OCR_API_KEY", ""),
+			BaseURL:    env("VISION_OCR_BASE_URL", ""),
+			Model:      env("VISION_OCR_MODEL", ""),
+			Prompt:     env("VISION_OCR_PROMPT", ""),
+			TimeoutSec: envInt("VISION_OCR_TIMEOUT_SEC", 180),
+			MaxPages:   envInt("VISION_OCR_MAX_PAGES", 50),
 		},
 	}
 

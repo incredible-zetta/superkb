@@ -78,6 +78,10 @@ services:
       # secrets are inherited from .env unchanged.
       POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/superkb?sslmode=disable
       HINDSIGHT_BASE_URL: http://hindsight:8888
+    extra_hosts:
+      # Lets the container reach host services (e.g. 9router for vision OCR)
+      # via host.docker.internal, matching the VISION_OCR_BASE_URL in .env.
+      - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
     depends_on:
