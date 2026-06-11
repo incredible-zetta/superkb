@@ -39,6 +39,22 @@ services:
       HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: ${HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY:-}
       HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: ${HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL:-text-embedding-3-small}
       HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS: ${HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS:-}
+      # Gemini embeddings (optional remote provider). Used when
+      # HINDSIGHT_API_EMBEDDINGS_PROVIDER=google. Switching embedding provider
+      # changes the vector space/dimension and REQUIRES rebuilding every bank.
+      HINDSIGHT_API_EMBEDDINGS_GEMINI_API_KEY: ${HINDSIGHT_API_EMBEDDINGS_GEMINI_API_KEY:-}
+      HINDSIGHT_API_EMBEDDINGS_GEMINI_MODEL: ${HINDSIGHT_API_EMBEDDINGS_GEMINI_MODEL:-gemini-embedding-001}
+      # NOTE: GEMINI_OUTPUT_DIMENSIONALITY is int-parsed by Hindsight and must be
+      # OMITTED (not empty) when unused. Add it back ONLY when PROVIDER=google,
+      # e.g. HINDSIGHT_API_EMBEDDINGS_GEMINI_OUTPUT_DIMENSIONALITY=768
+      # Reranker (recall speed). Search reranks retrieved candidates with a
+      # cross-encoder. FlashRank TinyBERT-L-2 on CPU reranks ~44 candidates in
+      # ~0.25s (vs ~3.5-6.6s for heavier local cross-encoders), which is the
+      # single biggest lever for sub-500ms KB search. Recall-only: changing
+      # these needs only a Hindsight restart, never a bank rebuild.
+      HINDSIGHT_API_RERANKER_PROVIDER: ${HINDSIGHT_API_RERANKER_PROVIDER:-flashrank}
+      HINDSIGHT_API_RERANKER_FLASHRANK_MODEL: ${HINDSIGHT_API_RERANKER_FLASHRANK_MODEL:-ms-marco-TinyBERT-L-2-v2}
+      HINDSIGHT_API_RERANKER_MAX_CANDIDATES: ${HINDSIGHT_API_RERANKER_MAX_CANDIDATES:-50}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

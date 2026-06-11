@@ -208,6 +208,25 @@ lookup, and the Hindsight adapter are all covered by unit tests.
   pages. Text PDFs resolve cleanly; scanned/image-only PDFs may report page `0`.
 - Consolidated multi-source facts have no single source chunk and omit
   per-document reference fields.
+- **Search latency (sub-500ms).** KB search cost is dominated by two Hindsight
+  knobs, both set for the fast path in `.env` / `docker-compose.yml`:
+  - **Embeddings** — `HINDSIGHT_API_EMBEDDINGS_PROVIDER=local` (built-in 384-dim
+    model, ~50-100ms query embed, no key/WAN hop). Remote providers
+    (`google`/`openai`) add ~300ms-3s per query; only switch for higher
+    retrieval quality, and note that changing provider changes the vector
+    dimension (local=384, gemini=768, openai=1536) and **requires rebuilding
+    every bank**.
+  - **Reranker** — `HINDSIGHT_API_RERANKER_PROVIDER=flashrank` with
+    `ms-marco-TinyBERT-L-2-v2`. Reranking is the single largest search cost;
+    TinyBERT-L-2 scores candidates in ~0.25-0.35s on CPU vs ~3.5s
+    (local MiniLM-L-6) or ~6.6s (FlashRank MiniLM-L-12). These are recall-only
+    knobs — changing them needs only a Hindsight restart, never a rebuild.
+  - With both defaults, end-to-end search is ~0.45-0.50s (query embed ~0.1s +
+    rerank ~0.3s + retrieval/overhead). For higher rerank quality at some
+    latency cost, use a cloud reranker (`cohere`/`zeroentropy`/`siliconflow`)
+    or run a local cross-encoder on GPU.
+  - Gotcha: `HINDSIGHT_API_EMBEDDINGS_GEMINI_OUTPUT_DIMENSIONALITY` is
+    int-parsed and must be **omitted** (not set empty) unless `PROVIDER=google`.
 
 ---
 

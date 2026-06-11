@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"time"
 
@@ -28,16 +29,43 @@ type Indexer struct {
 }
 
 // New constructs an Indexer from Hindsight config.
+//
+// The HTTP transport is tuned for connection reuse: search recalls are bursty
+// and short, so a fresh TCP+TLS handshake per request would dominate latency
+// (1-2 RTT each). Keeping idle keep-alive connections warm lets repeat recalls
+// skip the handshake entirely, which is the single biggest lever for getting
+// search under 500ms.
 func New(cfg config.HindsightConfig) *Indexer {
 	profile := cfg.Profile
 	if profile == "" {
 		profile = "default"
 	}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		// Pool sizing: keep enough warm connections to absorb concurrent and
+		// repeated recalls against the same Hindsight host without re-handshaking.
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		MaxConnsPerHost:     0, // unbounded; pool reuse is what matters
+		IdleConnTimeout:     90 * time.Second,
+		// Cap TLS handshake so a stalled connection fails fast instead of
+		// silently eating the request budget.
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}
 	return &Indexer{
-		httpClient: &http.Client{Timeout: time.Duration(cfg.TimeoutSec) * time.Second},
-		baseURL:    cfg.BaseURL,
-		apiKey:     cfg.APIKey,
-		profile:    profile,
+		httpClient: &http.Client{
+			Timeout:   time.Duration(cfg.TimeoutSec) * time.Second,
+			Transport: transport,
+		},
+		baseURL: cfg.BaseURL,
+		apiKey:  cfg.APIKey,
+		profile: profile,
 	}
 }
 
