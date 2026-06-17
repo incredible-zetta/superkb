@@ -92,6 +92,14 @@ durable queue (Redis, SQS) without touching the usecase.
   (OpenAI-compatible gateways, local models, etc.).
 - `poppler-utils` (`pdftotext`) for per-page source extraction.
 
+## Standalone Hindsight on EasyPanel
+
+Run Hindsight as its own service (no superkb engine required for the RAG
+piece). Use `Dockerfile.hindsight` as the build context and mount a persistent
+volume at `/home/hindsight/.pg0` to keep banks across redeploys. Env reference:
+`.env.hindsight.example`. Pair it with Hermes by setting `HINDSIGHT_BASE_URL`
+on the Hermes service (see `hermes-dockerize/.env.example`).
+
 ## Quick start
 
 ```bash
