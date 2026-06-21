@@ -39,6 +39,9 @@ func (h *KnowledgeBaseHandler) Routes(r chi.Router) {
 	r.Post("/knowledge-bases/{id}/disable", h.disable)
 
 	r.Post("/knowledge-bases/{id}/search", h.search)
+	r.Post("/knowledge-bases/{id}/experiences", h.retainExperience)
+	r.Patch("/knowledge-bases/{id}/memories/{memoryID}", h.curateMemory)
+	r.Post("/knowledge-bases/{id}/memories/{memoryID}/feedback", h.submitMemoryFeedback)
 }
 
 type createKBRequest struct {
@@ -266,6 +269,37 @@ type searchRequest struct {
 	IncludeReferences bool   `json:"include_references"`
 }
 
+type memoryResponse struct {
+	ID       string            `json:"id"`
+	Content  string            `json:"content"`
+	Type     string            `json:"type"`
+	Context  string            `json:"context,omitempty"`
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+func toMemoryResponse(m *domain.Memory) memoryResponse {
+	return memoryResponse{ID: m.ID, Content: m.Content, Type: string(m.Type), Context: m.Context, Tags: m.Tags, Metadata: m.Metadata}
+}
+
+type retainExperienceRequest struct {
+	Content  string            `json:"content"`
+	Context  string            `json:"context"`
+	Tags     []string          `json:"tags"`
+	Metadata map[string]string `json:"metadata"`
+}
+
+type curateMemoryRequestBody struct {
+	Text  string `json:"text"`
+	State string `json:"state"`
+}
+
+type memoryFeedbackRequest struct {
+	Reviewer     string `json:"reviewer"`
+	Vote         string `json:"vote"`
+	ProposedText string `json:"proposed_text"`
+}
+
 type searchHit struct {
 	MemoryID   string   `json:"memory_id,omitempty"`
 	DocumentID string   `json:"document_id,omitempty"`
@@ -282,6 +316,79 @@ type searchHit struct {
 	FileURL  string `json:"file_url,omitempty"`
 	Filename string `json:"filename,omitempty"`
 	Page     int    `json:"page,omitempty"`
+}
+
+func (h *KnowledgeBaseHandler) retainExperience(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r, "id")
+	if !ok {
+		return
+	}
+	var req retainExperienceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	mem, err := h.svc.RetainExperience(r.Context(), id, usecase.RetainMemoryInput{
+		Content:  req.Content,
+		Context:  req.Context,
+		Tags:     req.Tags,
+		Metadata: req.Metadata,
+	})
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toMemoryResponse(mem))
+}
+
+func (h *KnowledgeBaseHandler) curateMemory(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r, "id")
+	if !ok {
+		return
+	}
+	memoryID := chi.URLParam(r, "memoryID")
+	if memoryID == "" {
+		writeError(w, http.StatusBadRequest, "invalid memoryID")
+		return
+	}
+	var req curateMemoryRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	mem, err := h.svc.CurateMemory(r.Context(), id, memoryID, usecase.CurateMemoryInput{Text: req.Text, State: req.State})
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toMemoryResponse(mem))
+}
+
+func (h *KnowledgeBaseHandler) submitMemoryFeedback(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r, "id")
+	if !ok {
+		return
+	}
+	memoryID := chi.URLParam(r, "memoryID")
+	if memoryID == "" {
+		writeError(w, http.StatusBadRequest, "invalid memoryID")
+		return
+	}
+	var req memoryFeedbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	out, err := h.svc.SubmitMemoryFeedback(r.Context(), id, memoryID, usecase.MemoryFeedbackInput{
+		Reviewer:     req.Reviewer,
+		Vote:         req.Vote,
+		ProposedText: req.ProposedText,
+	})
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *KnowledgeBaseHandler) search(w http.ResponseWriter, r *http.Request) {

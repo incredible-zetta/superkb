@@ -80,8 +80,27 @@ CREATE TABLE IF NOT EXISTS kb_builds (
 	updated_at        TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS memory_feedback (
+	knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+	memory_id         TEXT NOT NULL,
+	reviewer          TEXT NOT NULL,
+	vote              TEXT NOT NULL,
+	proposed_text     TEXT NOT NULL DEFAULT '',
+	created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (knowledge_base_id, memory_id, reviewer, proposed_text)
+);
+
+CREATE TABLE IF NOT EXISTS memory_consensus_applied (
+	knowledge_base_id UUID NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+	memory_id         TEXT NOT NULL,
+	proposed_text     TEXT NOT NULL,
+	applied_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (knowledge_base_id, memory_id, proposed_text)
+);
+
 CREATE INDEX IF NOT EXISTS kb_builds_kb_idx ON kb_builds (knowledge_base_id);
 CREATE INDEX IF NOT EXISTS kb_documents_doc_idx ON kb_documents (document_id);
+CREATE INDEX IF NOT EXISTS memory_feedback_memory_idx ON memory_feedback (knowledge_base_id, memory_id);
 `
 
 // Migrate applies the schema.

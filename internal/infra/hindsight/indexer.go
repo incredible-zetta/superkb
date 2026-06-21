@@ -250,6 +250,68 @@ func (i *Indexer) waitForOperation(ctx context.Context, bankID, opID string) err
 	}
 }
 
+type retainMemoryRequest struct {
+	Content  string            `json:"content"`
+	Context  string            `json:"context,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Tags     []string          `json:"tags,omitempty"`
+}
+
+type retainMemoriesRequest struct {
+	Items []retainMemoryRequest `json:"items"`
+}
+
+type memoryResponse struct {
+	ID       string            `json:"id"`
+	Text     string            `json:"text"`
+	Type     string            `json:"type"`
+	Context  string            `json:"context,omitempty"`
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type retainMemoriesResponse struct {
+	Success    bool   `json:"success"`
+	BankID     string `json:"bank_id"`
+	ItemsCount int    `json:"items_count"`
+	Async      bool   `json:"async"`
+}
+
+type curateMemoryRequest struct {
+	Text  string `json:"text,omitempty"`
+	State string `json:"state,omitempty"`
+}
+
+func toDomainMemory(m memoryResponse) domain.Memory {
+	return domain.Memory{ID: m.ID, Content: m.Text, Type: domain.MemoryType(m.Type), Context: m.Context, Tags: m.Tags, Metadata: m.Metadata}
+}
+
+func (i *Indexer) RetainMemories(ctx context.Context, bankID string, memories []domain.Memory) ([]domain.Memory, error) {
+	if len(memories) == 0 {
+		return nil, nil
+	}
+	req := retainMemoriesRequest{Items: make([]retainMemoryRequest, len(memories))}
+	for n, m := range memories {
+		req.Items[n] = retainMemoryRequest{Content: m.Content, Context: m.Context, Tags: m.Tags, Metadata: m.Metadata}
+	}
+	var resp retainMemoriesResponse
+	if err := i.do(ctx, http.MethodPost, i.bankPath(bankID, "memories"), req, &resp); err != nil {
+		return nil, err
+	}
+	out := append([]domain.Memory(nil), memories...)
+	return out, nil
+}
+
+func (i *Indexer) CurateMemory(ctx context.Context, bankID, memoryID string, curation domain.MemoryCuration) (*domain.Memory, error) {
+	req := curateMemoryRequest{Text: curation.Text, State: curation.State}
+	var resp memoryResponse
+	if err := i.do(ctx, http.MethodPatch, i.bankPath(bankID, "memories", memoryID), req, &resp); err != nil {
+		return nil, err
+	}
+	mem := toDomainMemory(resp)
+	return &mem, nil
+}
+
 type recallChunkInclude struct {
 	MaxChunkTokens int `json:"max_chunk_tokens,omitempty"`
 }

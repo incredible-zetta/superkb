@@ -31,4 +31,7 @@ type KnowledgeBaseService interface {
 	Disable(ctx context.Context, kbID uuid.UUID) (*domain.KnowledgeBase, error)
 	ListBuilds(ctx context.Context, kbID uuid.UUID) ([]domain.Build, error)
 	Search(ctx context.Context, kbID uuid.UUID, query string, opts usecase.SearchOptions) ([]domain.SearchResult, error)
+	RetainExperience(ctx context.Context, kbID uuid.UUID, in usecase.RetainMemoryInput) (*domain.Memory, error)
+	CurateMemory(ctx context.Context, kbID uuid.UUID, memoryID string, in usecase.CurateMemoryInput) (*domain.Memory, error)
+	SubmitMemoryFeedback(ctx context.Context, kbID uuid.UUID, memoryID string, in usecase.MemoryFeedbackInput) (*usecase.MemoryConsensusResult, error)
 }

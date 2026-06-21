@@ -16,17 +16,20 @@ import (
 )
 
 type fakeKBService struct {
-	createFn   func(ctx context.Context, name, description string) (*domain.KnowledgeBase, error)
-	getFn      func(ctx context.Context, id uuid.UUID) (*domain.KnowledgeBase, error)
-	listFn     func(ctx context.Context, limit, offset int) ([]domain.KnowledgeBase, error)
-	deleteFn   func(ctx context.Context, id uuid.UUID) error
-	addFn      func(ctx context.Context, kbID, documentID uuid.UUID) error
-	removeFn   func(ctx context.Context, kbID, documentID uuid.UUID) error
-	buildFn    func(ctx context.Context, kbID uuid.UUID) (*domain.Build, error)
-	enableFn   func(ctx context.Context, kbID, buildID uuid.UUID) (*domain.KnowledgeBase, error)
-	disableFn  func(ctx context.Context, kbID uuid.UUID) (*domain.KnowledgeBase, error)
-	listBldFn  func(ctx context.Context, kbID uuid.UUID) ([]domain.Build, error)
-	searchFn   func(ctx context.Context, kbID uuid.UUID, query string, topK int) ([]domain.SearchResult, error)
+	createFn           func(ctx context.Context, name, description string) (*domain.KnowledgeBase, error)
+	getFn              func(ctx context.Context, id uuid.UUID) (*domain.KnowledgeBase, error)
+	listFn             func(ctx context.Context, limit, offset int) ([]domain.KnowledgeBase, error)
+	deleteFn           func(ctx context.Context, id uuid.UUID) error
+	addFn              func(ctx context.Context, kbID, documentID uuid.UUID) error
+	removeFn           func(ctx context.Context, kbID, documentID uuid.UUID) error
+	buildFn            func(ctx context.Context, kbID uuid.UUID) (*domain.Build, error)
+	enableFn           func(ctx context.Context, kbID, buildID uuid.UUID) (*domain.KnowledgeBase, error)
+	disableFn          func(ctx context.Context, kbID uuid.UUID) (*domain.KnowledgeBase, error)
+	listBldFn          func(ctx context.Context, kbID uuid.UUID) ([]domain.Build, error)
+	searchFn           func(ctx context.Context, kbID uuid.UUID, query string, topK int) ([]domain.SearchResult, error)
+	retainExperienceFn func(ctx context.Context, kbID uuid.UUID, in usecase.RetainMemoryInput) (*domain.Memory, error)
+	curateMemoryFn     func(ctx context.Context, kbID uuid.UUID, memoryID string, in usecase.CurateMemoryInput) (*domain.Memory, error)
+	memoryFeedbackFn   func(ctx context.Context, kbID uuid.UUID, memoryID string, in usecase.MemoryFeedbackInput) (*usecase.MemoryConsensusResult, error)
 }
 
 func (f *fakeKBService) Create(ctx context.Context, n, d string) (*domain.KnowledgeBase, error) {
@@ -59,6 +62,15 @@ func (f *fakeKBService) ListBuilds(ctx context.Context, k uuid.UUID) ([]domain.B
 }
 func (f *fakeKBService) Search(ctx context.Context, k uuid.UUID, q string, opts usecase.SearchOptions) ([]domain.SearchResult, error) {
 	return f.searchFn(ctx, k, q, opts.TopK)
+}
+func (f *fakeKBService) RetainExperience(ctx context.Context, k uuid.UUID, in usecase.RetainMemoryInput) (*domain.Memory, error) {
+	return f.retainExperienceFn(ctx, k, in)
+}
+func (f *fakeKBService) CurateMemory(ctx context.Context, k uuid.UUID, memoryID string, in usecase.CurateMemoryInput) (*domain.Memory, error) {
+	return f.curateMemoryFn(ctx, k, memoryID, in)
+}
+func (f *fakeKBService) SubmitMemoryFeedback(ctx context.Context, k uuid.UUID, memoryID string, in usecase.MemoryFeedbackInput) (*usecase.MemoryConsensusResult, error) {
+	return f.memoryFeedbackFn(ctx, k, memoryID, in)
 }
 
 func newKBServer(svc KnowledgeBaseService) *httptest.Server {
@@ -268,5 +280,98 @@ func TestAddDocumentEndpoint(t *testing.T) {
 	}
 	if gotKB != kbID || gotDoc != docID {
 		t.Errorf("expected (%s,%s), got (%s,%s)", kbID, docID, gotKB, gotDoc)
+	}
+}
+
+func TestRetainExperienceEndpoint(t *testing.T) {
+	kbID := uuid.New()
+	var got usecase.RetainMemoryInput
+	svc := &fakeKBService{
+		retainExperienceFn: func(_ context.Context, id uuid.UUID, in usecase.RetainMemoryInput) (*domain.Memory, error) {
+			if id != kbID {
+				t.Fatalf("wrong kb id: %s", id)
+			}
+			got = in
+			return &domain.Memory{ID: "mem-1", Content: in.Content, Type: domain.MemoryTypeExperience, Context: in.Context}, nil
+		},
+	}
+	srv := newKBServer(svc)
+	defer srv.Close()
+
+	body, _ := json.Marshal(retainExperienceRequest{Content: "User accepted answer", Context: "human feedback", Tags: []string{"feedback"}})
+	resp, err := http.Post(srv.URL+"/api/v1/knowledge-bases/"+kbID.String()+"/experiences", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	if got.Content != "User accepted answer" || got.Context != "human feedback" || len(got.Tags) != 1 {
+		t.Fatalf("unexpected input: %+v", got)
+	}
+}
+
+func TestCurateMemoryEndpoint(t *testing.T) {
+	kbID := uuid.New()
+	var gotID string
+	var got usecase.CurateMemoryInput
+	svc := &fakeKBService{
+		curateMemoryFn: func(_ context.Context, id uuid.UUID, memoryID string, in usecase.CurateMemoryInput) (*domain.Memory, error) {
+			if id != kbID {
+				t.Fatalf("wrong kb id: %s", id)
+			}
+			gotID = memoryID
+			got = in
+			return &domain.Memory{ID: memoryID, Content: in.Text, Type: domain.MemoryTypeWorld}, nil
+		},
+	}
+	srv := newKBServer(svc)
+	defer srv.Close()
+
+	body, _ := json.Marshal(curateMemoryRequestBody{Text: "Corrected", State: "active"})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/knowledge-bases/"+kbID.String()+"/memories/mem-1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if gotID != "mem-1" || got.Text != "Corrected" || got.State != "active" {
+		t.Fatalf("unexpected curate input: %s %+v", gotID, got)
+	}
+}
+
+func TestSubmitMemoryFeedbackEndpoint(t *testing.T) {
+	kbID := uuid.New()
+	var gotID string
+	var got usecase.MemoryFeedbackInput
+	svc := &fakeKBService{
+		memoryFeedbackFn: func(_ context.Context, id uuid.UUID, memoryID string, in usecase.MemoryFeedbackInput) (*usecase.MemoryConsensusResult, error) {
+			if id != kbID {
+				t.Fatalf("wrong kb id: %s", id)
+			}
+			gotID = memoryID
+			got = in
+			return &usecase.MemoryConsensusResult{MemoryID: memoryID, ProposedText: in.ProposedText, Approvals: 2, Status: "applied", Applied: true}, nil
+		},
+	}
+	srv := newKBServer(svc)
+	defer srv.Close()
+
+	body, _ := json.Marshal(memoryFeedbackRequest{Reviewer: "alice", Vote: "approve", ProposedText: "Corrected"})
+	resp, err := http.Post(srv.URL+"/api/v1/knowledge-bases/"+kbID.String()+"/memories/mem-1/feedback", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if gotID != "mem-1" || got.Reviewer != "alice" || got.Vote != "approve" || got.ProposedText != "Corrected" {
+		t.Fatalf("unexpected feedback input: %s %+v", gotID, got)
 	}
 }

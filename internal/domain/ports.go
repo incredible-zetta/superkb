@@ -9,6 +9,50 @@ import (
 
 // SearchResult is a single relevant fact returned from a RAG recall query,
 // with the source references needed to cite and highlight it in the UI.
+type MemoryType string
+
+const (
+	MemoryTypeWorld       MemoryType = "world"
+	MemoryTypeExperience  MemoryType = "experience"
+	MemoryTypeObservation MemoryType = "observation"
+)
+
+type Memory struct {
+	ID       string            `json:"id"`
+	Content  string            `json:"content"`
+	Type     MemoryType        `json:"type"`
+	Context  string            `json:"context,omitempty"`
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type MemoryCuration struct {
+	Text  string `json:"text,omitempty"`
+	State string `json:"state,omitempty"`
+}
+
+type MemoryFeedback struct {
+	KnowledgeBaseID uuid.UUID
+	MemoryID        string
+	Reviewer        string
+	Vote            string
+	ProposedText    string
+}
+
+type MemoryConsensus struct {
+	MemoryID     string
+	ProposedText string
+	Approvals    int
+	Rejections   int
+	Status       string
+	Applied      bool
+}
+
+type MemoryFeedbackRepository interface {
+	AddMemoryFeedback(ctx context.Context, feedback MemoryFeedback) (MemoryConsensus, error)
+	MarkMemoryConsensusApplied(ctx context.Context, kbID uuid.UUID, memoryID, proposedText string) error
+}
+
 type SearchResult struct {
 	MemoryID   string   // Hindsight memory/fact id
 	DocumentID string   // source document id within the bank (our document UUID)
@@ -109,6 +153,10 @@ type RAGIndexer interface {
 	Retain(ctx context.Context, bankID string, docs []RAGDocument) error
 	// Recall runs a similarity search against a bank.
 	Recall(ctx context.Context, bankID, query string, topK int) ([]SearchResult, error)
+	// RetainMemories stores non-file memories such as conversations, actions, and feedback.
+	RetainMemories(ctx context.Context, bankID string, memories []Memory) ([]Memory, error)
+	// CurateMemory edits, invalidates, or restores an extracted memory unit.
+	CurateMemory(ctx context.Context, bankID, memoryID string, curation MemoryCuration) (*Memory, error)
 	// DeleteBank removes a bank and all its indexed data.
 	DeleteBank(ctx context.Context, bankID string) error
 }

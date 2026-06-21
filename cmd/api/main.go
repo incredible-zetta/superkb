@@ -61,10 +61,11 @@ func run() error {
 	extractor := extract.NewPDFExtractor()
 	docRepo := postgres.NewDocumentRepository(pool)
 	kbRepo := postgres.NewKnowledgeBaseRepository(pool)
+	feedbackRepo := postgres.NewMemoryFeedbackRepository(pool)
 
 	queue := usecase.NewChannelBuildQueue(cfg.Worker.QueueSize)
 	docUC := usecase.NewDocumentUseCase(docRepo, storage, extractor, cfg.S3.PublicBaseURL)
-	kbUC := usecase.NewKnowledgeBaseUseCase(kbRepo, docRepo, storage, indexer, queue, extractor, cfg.S3.PublicBaseURL)
+	kbUC := usecase.NewKnowledgeBaseUseCase(kbRepo, feedbackRepo, docRepo, storage, indexer, queue, extractor, cfg.S3.PublicBaseURL)
 	// Optional vision-LLM OCR (e.g. MiniMax-VL-01 via 9router): when configured,
 	// scanned PDFs/images are OCR'd to text before retain. NewVision returns nil
 	// (OCR disabled) without an API key or model, and WithConverter(nil) is a

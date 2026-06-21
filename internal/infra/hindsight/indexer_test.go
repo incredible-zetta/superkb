@@ -163,3 +163,51 @@ func TestIndexer_ErrorStatus(t *testing.T) {
 		t.Fatal("expected error on 500, got nil")
 	}
 }
+
+func TestIndexer_RetainMemories(t *testing.T) {
+	var reqBody retainMemoriesRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/default/banks/kb-1/memories" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		_ = json.NewEncoder(w).Encode(retainMemoriesResponse{Success: true, BankID: "kb-1", ItemsCount: 1, Async: false})
+	}))
+	defer srv.Close()
+
+	idx := New(config.HindsightConfig{BaseURL: srv.URL})
+	out, err := idx.RetainMemories(context.Background(), "kb-1", []domain.Memory{{Content: "did thing", Type: domain.MemoryTypeExperience, Context: "task"}})
+	if err != nil {
+		t.Fatalf("RetainMemories: %v", err)
+	}
+	if len(reqBody.Items) != 1 || reqBody.Items[0].Content != "did thing" {
+		t.Fatalf("unexpected retain request: %+v", reqBody)
+	}
+	if len(out) != 1 || out[0].Content != "did thing" || out[0].Type != domain.MemoryTypeExperience {
+		t.Fatalf("unexpected retain response: %+v", out)
+	}
+}
+
+func TestIndexer_CurateMemory(t *testing.T) {
+	var reqBody curateMemoryRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/v1/default/banks/kb-1/memories/mem-1" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		_ = json.NewEncoder(w).Encode(memoryResponse{ID: "mem-1", Text: "corrected", Type: "world"})
+	}))
+	defer srv.Close()
+
+	idx := New(config.HindsightConfig{BaseURL: srv.URL})
+	out, err := idx.CurateMemory(context.Background(), "kb-1", "mem-1", domain.MemoryCuration{Text: "corrected", State: "active"})
+	if err != nil {
+		t.Fatalf("CurateMemory: %v", err)
+	}
+	if reqBody.Text != "corrected" || reqBody.State != "active" {
+		t.Fatalf("unexpected curate request: %+v", reqBody)
+	}
+	if out.ID != "mem-1" || out.Content != "corrected" || out.Type != domain.MemoryTypeWorld {
+		t.Fatalf("unexpected curate response: %+v", out)
+	}
+}
