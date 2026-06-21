@@ -16,7 +16,7 @@ func newKBUC() (*KnowledgeBaseUseCase, *fakeKBRepo, *fakeDocRepo, *fakeStorage, 
 	kbRepo := newFakeKBRepo(docs)
 	indexer := newFakeIndexer()
 	queue := &syncQueue{}
-	uc := NewKnowledgeBaseUseCase(kbRepo, docs, storage, indexer, queue, nil, "")
+	uc := NewKnowledgeBaseUseCase(kbRepo, newFakeFeedbackRepo(), docs, storage, indexer, queue, nil, "")
 	queue.processor = uc // sync queue processes builds inline via the usecase
 	return uc, kbRepo, docs, storage, indexer
 }
@@ -229,5 +229,98 @@ func mustAdd(t *testing.T, uc *KnowledgeBaseUseCase, kbID, docID uuid.UUID) {
 	t.Helper()
 	if err := uc.AddDocument(context.Background(), kbID, docID); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
+	}
+}
+
+func mustKB(t *testing.T, uc *KnowledgeBaseUseCase, name string) *domain.KnowledgeBase {
+	t.Helper()
+	kb, err := uc.Create(context.Background(), name, "")
+	if err != nil {
+		t.Fatalf("Create KB failed: %v", err)
+	}
+	return kb
+}
+
+func readyBuild(t *testing.T, repo *fakeKBRepo, kbID uuid.UUID, bankID string) *domain.Build {
+	t.Helper()
+	b := &domain.Build{ID: uuid.New(), KnowledgeBaseID: kbID, BankID: bankID, Status: domain.BuildReady}
+	if err := repo.CreateBuild(context.Background(), b); err != nil {
+		t.Fatalf("CreateBuild failed: %v", err)
+	}
+	return b
+}
+
+func TestRetainExperienceUsesActiveBuildBank(t *testing.T) {
+	uc, repo, _, _, indexer := newKBUC()
+	kb := mustKB(t, uc, "Agent Memory")
+	build := readyBuild(t, repo, kb.ID, "bank-active")
+	_, _ = uc.Enable(context.Background(), kb.ID, build.ID)
+
+	mem, err := uc.RetainExperience(context.Background(), kb.ID, RetainMemoryInput{
+		Content:  "User accepted the answer about vacation policy.",
+		Context:  "human feedback",
+		Tags:     []string{"feedback", "accepted"},
+		Metadata: map[string]string{"source": "e2e"},
+	})
+	if err != nil {
+		t.Fatalf("RetainExperience error: %v", err)
+	}
+	if mem.ID != "mem-1" {
+		t.Fatalf("expected retained memory id, got %q", mem.ID)
+	}
+	if indexer.retainedMemories[0].bankID != "bank-active" {
+		t.Fatalf("expected active bank, got %q", indexer.retainedMemories[0].bankID)
+	}
+	got := indexer.retainedMemories[0].memories[0]
+	if got.Type != domain.MemoryTypeExperience || got.Content == "" || got.Context != "human feedback" {
+		t.Fatalf("unexpected memory: %+v", got)
+	}
+}
+
+func TestCurateMemoryUsesActiveBuildBank(t *testing.T) {
+	uc, repo, _, _, indexer := newKBUC()
+	kb := mustKB(t, uc, "Agent Memory")
+	build := readyBuild(t, repo, kb.ID, "bank-active")
+	_, _ = uc.Enable(context.Background(), kb.ID, build.ID)
+
+	mem, err := uc.CurateMemory(context.Background(), kb.ID, "mem-1", CurateMemoryInput{Text: "Corrected fact", State: "active"})
+	if err != nil {
+		t.Fatalf("CurateMemory error: %v", err)
+	}
+	if mem.ID != "mem-1" || mem.Content != "Corrected fact" {
+		t.Fatalf("unexpected curated memory: %+v", mem)
+	}
+	if indexer.curatedBankID != "bank-active" || indexer.curatedMemoryID != "mem-1" {
+		t.Fatalf("wrong curation target: %s/%s", indexer.curatedBankID, indexer.curatedMemoryID)
+	}
+}
+
+func TestSubmitMemoryFeedbackAppliesCorrectionAfterTwoApprovals(t *testing.T) {
+	uc, repo, _, _, indexer := newKBUC()
+	kb := mustKB(t, uc, "Consensus KB")
+	build := readyBuild(t, repo, kb.ID, "bank-active")
+	_, _ = uc.Enable(context.Background(), kb.ID, build.ID)
+
+	input := MemoryFeedbackInput{Reviewer: "alice", Vote: "approve", ProposedText: "warehouse limit is 22C"}
+	out, err := uc.SubmitMemoryFeedback(context.Background(), kb.ID, "mem-1", input)
+	if err != nil {
+		t.Fatalf("first feedback: %v", err)
+	}
+	if out.Status != "pending_consensus" || out.Approvals != 1 || out.Applied {
+		t.Fatalf("unexpected first status: %+v", out)
+	}
+	if indexer.curatedMemoryID != "" {
+		t.Fatalf("should not curate before consensus, got %s", indexer.curatedMemoryID)
+	}
+
+	out, err = uc.SubmitMemoryFeedback(context.Background(), kb.ID, "mem-1", MemoryFeedbackInput{Reviewer: "bob", Vote: "approve", ProposedText: "warehouse limit is 22C"})
+	if err != nil {
+		t.Fatalf("second feedback: %v", err)
+	}
+	if out.Status != "applied" || out.Approvals != 2 || !out.Applied {
+		t.Fatalf("unexpected second status: %+v", out)
+	}
+	if indexer.curatedBankID != "bank-active" || indexer.curatedMemoryID != "mem-1" || indexer.curatedText != "warehouse limit is 22C" {
+		t.Fatalf("correction not applied: bank=%s mem=%s text=%q", indexer.curatedBankID, indexer.curatedMemoryID, indexer.curatedText)
 	}
 }

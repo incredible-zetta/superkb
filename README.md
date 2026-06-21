@@ -92,6 +92,14 @@ durable queue (Redis, SQS) without touching the usecase.
   (OpenAI-compatible gateways, local models, etc.).
 - `poppler-utils` (`pdftotext`) for per-page source extraction.
 
+## Standalone Hindsight on EasyPanel
+
+Run Hindsight as its own service (no superkb engine required for the RAG
+piece). Use `Dockerfile.hindsight` as the build context and mount a persistent
+volume at `/home/hindsight/.pg0` to keep banks across redeploys. Env reference:
+`.env.hindsight.example`. Pair it with Hermes by setting `HINDSIGHT_BASE_URL`
+on the Hermes service (see `hermes-dockerize/.env.example`).
+
 ## Quick start
 
 ```bash
@@ -128,6 +136,9 @@ The API listens on `:8080`. See `.env.example` for every setting and
 | POST   | `/api/v1/knowledge-bases/{id}/enable`                 | Enable a build for search           |
 | POST   | `/api/v1/knowledge-bases/{id}/disable`                | Disable search                      |
 | POST   | `/api/v1/knowledge-bases/{id}/search`                 | Search the active build             |
+| POST   | `/api/v1/knowledge-bases/{id}/experiences`            | Retain agent/user feedback experience into active build |
+| PATCH  | `/api/v1/knowledge-bases/{id}/memories/{memoryID}`    | Curate a Hindsight memory unit (edit/invalidate/restore) |
+| POST   | `/api/v1/knowledge-bases/{id}/memories/{memoryID}/feedback` | Vote on a correction; 2 approvals apply it |
 
 All `/api/v1` routes require HTTP basic auth (`AUTH_*` in `.env`). `/healthz` is open.
 
@@ -161,7 +172,21 @@ curl $AUTH -X POST $B/knowledge-bases/$kb/enable \
 curl $AUTH -X POST $B/knowledge-bases/$kb/search -H 'Content-Type: application/json' \
   -d '{"query":"how many vacation days?","top_k":5,"include_references":true}'
 
-# 7. Instant rollback: enable any previous ready build
+# 7. Retain human feedback / agent action as experience memory
+curl $AUTH -X POST $B/knowledge-bases/$kb/experiences -H 'Content-Type: application/json' \
+  -d '{"content":"User accepted the vacation policy answer.","context":"human feedback","tags":["feedback","accepted"]}'
+
+# 8. Curate a cited memory unit (edit, invalidate, or restore)
+curl $AUTH -X PATCH $B/knowledge-bases/$kb/memories/<memory_id> -H 'Content-Type: application/json' \
+  -d '{"text":"Corrected memory text","state":"active"}'
+
+# 9. Human consensus correction (2 approvals with same proposed_text applies it)
+curl $AUTH -X POST $B/knowledge-bases/$kb/memories/<memory_id>/feedback -H 'Content-Type: application/json' \
+  -d '{"reviewer":"alice","vote":"approve","proposed_text":"Corrected memory text"}'
+curl $AUTH -X POST $B/knowledge-bases/$kb/memories/<memory_id>/feedback -H 'Content-Type: application/json' \
+  -d '{"reviewer":"bob","vote":"approve","proposed_text":"Corrected memory text"}'
+
+# 10. Instant rollback: enable any previous ready build
 curl $AUTH -X POST $B/knowledge-bases/$kb/enable \
   -H 'Content-Type: application/json' -d '{"build_id":"<previous-build-id>"}'
 ```

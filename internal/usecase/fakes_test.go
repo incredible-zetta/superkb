@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -105,12 +106,21 @@ func (s *fakeStorage) Delete(_ context.Context, key string) error {
 
 // --- fake RAG indexer ------------------------------------------------------
 
+type retainedMemoriesCall struct {
+	bankID   string
+	memories []domain.Memory
+}
+
 type fakeIndexer struct {
-	mu        sync.Mutex
-	banks     map[string][]domain.RAGDocument
-	recallFn  func(bankID, query string, topK int) []domain.SearchResult
-	createErr error
-	retainErr error
+	mu               sync.Mutex
+	banks            map[string][]domain.RAGDocument
+	retainedMemories []retainedMemoriesCall
+	curatedBankID    string
+	curatedMemoryID  string
+	curatedText      string
+	recallFn         func(bankID, query string, topK int) []domain.SearchResult
+	createErr        error
+	retainErr        error
 }
 
 func newFakeIndexer() *fakeIndexer { return &fakeIndexer{banks: map[string][]domain.RAGDocument{}} }
@@ -146,6 +156,28 @@ func (i *fakeIndexer) Recall(_ context.Context, bankID, query string, topK int) 
 		out = append(out, domain.SearchResult{DocumentID: d.DocumentID, Content: string(d.Content), Score: 1.0})
 	}
 	return out, nil
+}
+
+func (i *fakeIndexer) RetainMemories(_ context.Context, bankID string, memories []domain.Memory) ([]domain.Memory, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	out := append([]domain.Memory(nil), memories...)
+	for n := range out {
+		if out[n].ID == "" {
+			out[n].ID = fmt.Sprintf("mem-%d", n+1)
+		}
+	}
+	i.retainedMemories = append(i.retainedMemories, retainedMemoriesCall{bankID: bankID, memories: out})
+	return out, nil
+}
+
+func (i *fakeIndexer) CurateMemory(_ context.Context, bankID, memoryID string, curation domain.MemoryCuration) (*domain.Memory, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.curatedBankID = bankID
+	i.curatedMemoryID = memoryID
+	i.curatedText = curation.Text
+	return &domain.Memory{ID: memoryID, Content: curation.Text}, nil
 }
 
 func (i *fakeIndexer) DeleteBank(_ context.Context, bankID string) error {
@@ -311,4 +343,56 @@ type syncQueue struct {
 func (q *syncQueue) Enqueue(_ context.Context, buildID uuid.UUID) error {
 	q.enqueued = append(q.enqueued, buildID)
 	return q.processor.ProcessBuild(context.Background(), buildID)
+}
+
+// --- fake memory feedback repo --------------------------------------------
+
+type fakeFeedbackRepo struct {
+	mu        sync.Mutex
+	feedbacks []domain.MemoryFeedback
+	applied   map[string]bool
+}
+
+func newFakeFeedbackRepo() *fakeFeedbackRepo {
+	return &fakeFeedbackRepo{applied: map[string]bool{}}
+}
+
+func feedbackKey(kbID uuid.UUID, memoryID, text string) string {
+	return kbID.String() + "|" + memoryID + "|" + text
+}
+
+func (r *fakeFeedbackRepo) AddMemoryFeedback(_ context.Context, f domain.MemoryFeedback) (domain.MemoryConsensus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.feedbacks = append(r.feedbacks, f)
+	c := domain.MemoryConsensus{MemoryID: f.MemoryID, ProposedText: f.ProposedText, Status: "pending_consensus"}
+	seen := map[string]bool{}
+	for _, item := range r.feedbacks {
+		if item.KnowledgeBaseID != f.KnowledgeBaseID || item.MemoryID != f.MemoryID || item.ProposedText != f.ProposedText {
+			continue
+		}
+		key := item.Reviewer + "|" + item.Vote
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		switch item.Vote {
+		case "approve":
+			c.Approvals++
+		case "reject":
+			c.Rejections++
+		}
+	}
+	if r.applied[feedbackKey(f.KnowledgeBaseID, f.MemoryID, f.ProposedText)] {
+		c.Status = "applied"
+		c.Applied = true
+	}
+	return c, nil
+}
+
+func (r *fakeFeedbackRepo) MarkMemoryConsensusApplied(_ context.Context, kbID uuid.UUID, memoryID, proposedText string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.applied[feedbackKey(kbID, memoryID, proposedText)] = true
+	return nil
 }

@@ -17,6 +17,7 @@ import (
 // switching the active build.
 type KnowledgeBaseUseCase struct {
 	repo          domain.KnowledgeBaseRepository
+	feedback      domain.MemoryFeedbackRepository
 	docs          domain.DocumentRepository
 	storage       domain.ObjectStorage
 	indexer       domain.RAGIndexer
@@ -33,6 +34,7 @@ type KnowledgeBaseUseCase struct {
 // be zero-valued to disable that enrichment.
 func NewKnowledgeBaseUseCase(
 	repo domain.KnowledgeBaseRepository,
+	feedback domain.MemoryFeedbackRepository,
 	docs domain.DocumentRepository,
 	storage domain.ObjectStorage,
 	indexer domain.RAGIndexer,
@@ -42,6 +44,7 @@ func NewKnowledgeBaseUseCase(
 ) *KnowledgeBaseUseCase {
 	return &KnowledgeBaseUseCase{
 		repo:          repo,
+		feedback:      feedback,
 		docs:          docs,
 		storage:       storage,
 		indexer:       indexer,
@@ -337,10 +340,139 @@ func (uc *KnowledgeBaseUseCase) ListBuilds(ctx context.Context, kbID uuid.UUID) 
 	return uc.repo.ListBuilds(ctx, kbID)
 }
 
+type RetainMemoryInput struct {
+	Content  string
+	Context  string
+	Tags     []string
+	Metadata map[string]string
+}
+
+type CurateMemoryInput struct {
+	Text  string
+	State string
+}
+
+type MemoryFeedbackInput struct {
+	Reviewer     string
+	Vote         string
+	ProposedText string
+}
+
+type MemoryConsensusResult struct {
+	MemoryID     string `json:"memory_id"`
+	ProposedText string `json:"proposed_text,omitempty"`
+	Approvals    int    `json:"approvals"`
+	Rejections   int    `json:"rejections"`
+	Status       string `json:"status"`
+	Applied      bool   `json:"applied"`
+}
+
 // SearchOptions tunes a knowledge base search.
 type SearchOptions struct {
 	TopK              int
 	IncludeReferences bool // resolve file links + page numbers per result
+}
+
+func (uc *KnowledgeBaseUseCase) activeBankID(ctx context.Context, kbID uuid.UUID) (string, error) {
+	kb, err := uc.repo.GetByID(ctx, kbID)
+	if err != nil {
+		return "", fmt.Errorf("kb: %w", err)
+	}
+	if !kb.IsSearchable() {
+		return "", fmt.Errorf("%w: knowledge base is not enabled or has no active build", domain.ErrConflict)
+	}
+	build, err := uc.repo.GetBuild(ctx, *kb.ActiveBuildID)
+	if err != nil {
+		return "", fmt.Errorf("active build: %w", err)
+	}
+	return build.BankID, nil
+}
+
+func (uc *KnowledgeBaseUseCase) RetainExperience(ctx context.Context, kbID uuid.UUID, in RetainMemoryInput) (*domain.Memory, error) {
+	if strings.TrimSpace(in.Content) == "" {
+		return nil, fmt.Errorf("retain experience: %w: content required", domain.ErrInvalidInput)
+	}
+	bankID, err := uc.activeBankID(ctx, kbID)
+	if err != nil {
+		return nil, fmt.Errorf("retain experience: %w", err)
+	}
+	mems, err := uc.indexer.RetainMemories(ctx, bankID, []domain.Memory{{
+		Content:  in.Content,
+		Type:     domain.MemoryTypeExperience,
+		Context:  in.Context,
+		Tags:     in.Tags,
+		Metadata: in.Metadata,
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("retain experience: %w", err)
+	}
+	if len(mems) == 0 {
+		return nil, fmt.Errorf("retain experience: no memory returned")
+	}
+	return &mems[0], nil
+}
+
+func (uc *KnowledgeBaseUseCase) CurateMemory(ctx context.Context, kbID uuid.UUID, memoryID string, in CurateMemoryInput) (*domain.Memory, error) {
+	if strings.TrimSpace(memoryID) == "" {
+		return nil, fmt.Errorf("curate memory: %w: memory_id required", domain.ErrInvalidInput)
+	}
+	bankID, err := uc.activeBankID(ctx, kbID)
+	if err != nil {
+		return nil, fmt.Errorf("curate memory: %w", err)
+	}
+	state := normalizeCurationState(in.State)
+	mem, err := uc.indexer.CurateMemory(ctx, bankID, memoryID, domain.MemoryCuration{Text: in.Text, State: state})
+	if err != nil {
+		return nil, fmt.Errorf("curate memory: %w", err)
+	}
+	return mem, nil
+}
+
+func normalizeCurationState(state string) string {
+	if state == "active" {
+		return "valid"
+	}
+	return state
+}
+
+func (uc *KnowledgeBaseUseCase) SubmitMemoryFeedback(ctx context.Context, kbID uuid.UUID, memoryID string, in MemoryFeedbackInput) (*MemoryConsensusResult, error) {
+	if uc.feedback == nil {
+		return nil, fmt.Errorf("memory feedback: %w: feedback repository unavailable", domain.ErrInvalidInput)
+	}
+	if strings.TrimSpace(memoryID) == "" || strings.TrimSpace(in.Reviewer) == "" || strings.TrimSpace(in.Vote) == "" {
+		return nil, fmt.Errorf("memory feedback: %w: memory_id, reviewer, and vote required", domain.ErrInvalidInput)
+	}
+	if in.Vote != "approve" && in.Vote != "reject" {
+		return nil, fmt.Errorf("memory feedback: %w: vote must be approve or reject", domain.ErrInvalidInput)
+	}
+	consensus, err := uc.feedback.AddMemoryFeedback(ctx, domain.MemoryFeedback{
+		KnowledgeBaseID: kbID,
+		MemoryID:        memoryID,
+		Reviewer:        in.Reviewer,
+		Vote:            in.Vote,
+		ProposedText:    in.ProposedText,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("memory feedback: %w", err)
+	}
+	if in.Vote == "approve" && consensus.Approvals >= 2 && consensus.ProposedText != "" && !consensus.Applied {
+		if _, err := uc.CurateMemory(ctx, kbID, memoryID, CurateMemoryInput{Text: consensus.ProposedText, State: "active"}); err != nil {
+			return nil, fmt.Errorf("memory feedback: apply consensus: %w", err)
+		}
+		if err := uc.feedback.MarkMemoryConsensusApplied(ctx, kbID, memoryID, consensus.ProposedText); err != nil {
+			return nil, fmt.Errorf("memory feedback: mark applied: %w", err)
+		}
+		consensus.Status = "applied"
+		consensus.Applied = true
+	}
+	return &MemoryConsensusResult{
+		MemoryID:     consensus.MemoryID,
+		ProposedText: consensus.ProposedText,
+		Approvals:    consensus.Approvals,
+		Rejections:   consensus.Rejections,
+		Status:       consensus.Status,
+		Applied:      consensus.Applied,
+	}, nil
 }
 
 // Search runs a similarity query against a knowledge base's active build. When
