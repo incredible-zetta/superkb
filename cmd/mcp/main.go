@@ -2,14 +2,30 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"superkb/internal/app"
+	mcpdelivery "superkb/internal/delivery/mcp"
 )
 
 func main() {
-	server := mcp.NewServer(&mcp.Implementation{Name: "superkb", Version: "0.1.0"}, nil)
-	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		log.Fatal(err)
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
+
+	ctx := context.Background()
+	application, err := app.New(ctx)
+	if err != nil {
+		slog.Error("startup failed", "error", err)
+		os.Exit(1)
+	}
+	defer application.Close()
+
+	server := mcpdelivery.NewServer(application.DocumentUseCase, application.KnowledgeBaseUseCase)
+	if err := server.Run(ctx, &mcpsdk.StdioTransport{}); err != nil {
+		slog.Error("mcp server exited", "error", err)
+		os.Exit(1)
 	}
 }
