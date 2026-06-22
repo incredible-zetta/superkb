@@ -11,13 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"superkb/internal/config"
+	"superkb/internal/app"
 	deliveryhttp "superkb/internal/delivery/http"
-	"superkb/internal/infra/extract"
-	"superkb/internal/infra/hindsight"
-	"superkb/internal/infra/ocr"
-	"superkb/internal/infra/postgres"
-	"superkb/internal/infra/s3store"
 	"superkb/internal/usecase"
 )
 
@@ -32,67 +27,32 @@ func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
 	ctx := context.Background()
 
-	pool, err := postgres.NewPool(ctx, cfg.Postgres.DSN)
+	application, err := app.New(ctx)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-
-	if err := postgres.Migrate(ctx, pool); err != nil {
-		return err
-	}
-
-	storage, err := s3store.New(ctx, cfg.S3)
-	if err != nil {
-		return err
-	}
-	if err := storage.EnsureBucket(ctx); err != nil {
-		slog.Warn("ensure bucket failed; continuing", "error", err)
-	}
-
-	indexer := hindsight.New(cfg.Hindsight)
-	extractor := extract.NewPDFExtractor()
-	docRepo := postgres.NewDocumentRepository(pool)
-	kbRepo := postgres.NewKnowledgeBaseRepository(pool)
-	feedbackRepo := postgres.NewMemoryFeedbackRepository(pool)
-
-	queue := usecase.NewChannelBuildQueue(cfg.Worker.QueueSize)
-	docUC := usecase.NewDocumentUseCase(docRepo, storage, extractor, cfg.S3.PublicBaseURL)
-	kbUC := usecase.NewKnowledgeBaseUseCase(kbRepo, feedbackRepo, docRepo, storage, indexer, queue, extractor, cfg.S3.PublicBaseURL)
-	// Optional vision-LLM OCR (e.g. MiniMax-VL-01 via 9router): when configured,
-	// scanned PDFs/images are OCR'd to text before retain. NewVision returns nil
-	// (OCR disabled) without an API key or model, and WithConverter(nil) is a
-	// no-op.
-	if conv := ocr.NewVision(cfg.VisionOCR); conv != nil {
-		kbUC.WithConverter(conv)
-		slog.Info("vision OCR enabled", "model", cfg.VisionOCR.Model)
-	}
+	defer application.Close()
 
 	// Background build worker: drains the queue and runs the RAG indexing
 	// pipeline off the request path.
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
-	worker := usecase.NewBuildWorker(queue, kbUC, cfg.Worker.Concurrency, slog.Default())
+	worker := usecase.NewBuildWorker(application.Queue, application.KnowledgeBaseUseCase, application.Config.Worker.Concurrency, slog.Default())
 	worker.Start(workerCtx)
 
 	router := deliveryhttp.NewRouter(
-		deliveryhttp.NewDocumentHandler(docUC),
-		deliveryhttp.NewKnowledgeBaseHandler(kbUC),
-		deliveryhttp.BasicAuth(cfg.Auth.Enabled, cfg.Auth.Username, cfg.Auth.Password),
+		deliveryhttp.NewDocumentHandler(application.DocumentUseCase),
+		deliveryhttp.NewKnowledgeBaseHandler(application.KnowledgeBaseUseCase),
+		deliveryhttp.BasicAuth(application.Config.Auth.Enabled, application.Config.Auth.Username, application.Config.Auth.Password),
 	)
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.HTTP.Port),
+		Addr:         fmt.Sprintf(":%d", application.Config.HTTP.Port),
 		Handler:      router,
-		ReadTimeout:  time.Duration(cfg.HTTP.ReadTimeoutSec) * time.Second,
-		WriteTimeout: time.Duration(cfg.HTTP.WriteTimeoutSec) * time.Second,
+		ReadTimeout:  time.Duration(application.Config.HTTP.ReadTimeoutSec) * time.Second,
+		WriteTimeout: time.Duration(application.Config.HTTP.WriteTimeoutSec) * time.Second,
 	}
 
 	errCh := make(chan error, 1)

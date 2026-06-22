@@ -108,6 +108,38 @@ make docker-up              # postgres + hindsight + superkb
 make test                   # run unit tests
 ```
 
+## MCP server
+
+SuperKB also ships an MCP server (`cmd/mcp`) that exposes the same operations as
+MCP tools over stdio, for agent clients. It reuses the same `.env` as the API
+(Postgres, storage, Hindsight, OCR).
+
+```bash
+go run ./cmd/mcp            # serves MCP over stdio
+```
+
+Example client config (stdio):
+
+```json
+{
+  "mcpServers": {
+    "superkb": {
+      "command": "go",
+      "args": ["run", "./cmd/mcp"],
+      "cwd": "/path/to/superkb"
+    }
+  }
+}
+```
+
+Tools:
+- Documents: `list_documents`, `get_document`, `get_document_source`, `upload_document`, `delete_document`
+- Knowledge bases: `list_knowledge_bases`, `get_knowledge_base`, `create_knowledge_base`, `delete_knowledge_base`
+- Membership: `add_document_to_knowledge_base`, `remove_document_from_knowledge_base`
+- Builds: `build_knowledge_base`, `list_builds`, `enable_knowledge_base_build`, `disable_knowledge_base`, `process_build`
+- Search: `search_knowledge_base`
+- Memory: `retain_experience`, `curate_memory`, `submit_memory_feedback`
+
 The API listens on `:8080`. See `.env.example` for every setting and
 `examples/` for a runnable curl walkthrough and a Postman collection.
 
