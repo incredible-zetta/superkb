@@ -55,6 +55,8 @@ func NewServer(docs DocumentService, kbs KnowledgeBaseService) *mcpsdk.Server {
 	h := &handler{docs: docs, kbs: kbs}
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "superkb", Version: "0.1.0"}, nil)
 	h.registerReadTools(server)
+	h.registerWriteTools(server)
+	h.registerMemoryTools(server)
 	return server
 }
 

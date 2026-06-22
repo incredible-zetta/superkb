@@ -9,6 +9,7 @@ import (
 
 	"superkb/internal/app"
 	mcpdelivery "superkb/internal/delivery/mcp"
+	"superkb/internal/usecase"
 )
 
 func main() {
@@ -23,8 +24,18 @@ func main() {
 	}
 	defer application.Close()
 
+	// Background build worker so build_knowledge_base can enqueue and complete.
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	worker := usecase.NewBuildWorker(application.Queue, application.KnowledgeBaseUseCase, application.Config.Worker.Concurrency, slog.Default())
+	worker.Start(workerCtx)
+
 	server := mcpdelivery.NewServer(application.DocumentUseCase, application.KnowledgeBaseUseCase)
-	if err := server.Run(ctx, &mcpsdk.StdioTransport{}); err != nil {
+	err = server.Run(ctx, &mcpsdk.StdioTransport{})
+
+	stopWorker()
+	worker.Wait()
+	if err != nil {
 		slog.Error("mcp server exited", "error", err)
 		os.Exit(1)
 	}
